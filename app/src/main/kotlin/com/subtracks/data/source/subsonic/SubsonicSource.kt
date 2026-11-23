@@ -9,6 +9,7 @@ import com.subtracks.data.model.PlaylistSong
 import com.subtracks.data.model.Song
 import com.subtracks.data.source.DEFAULT_FETCH_CONCURRENCY
 import com.subtracks.data.source.MusicSource
+import com.subtracks.data.source.PlaylistContents
 import com.subtracks.data.source.StarType
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -165,6 +166,70 @@ class SubsonicSource(
                 }
             }
         }.flowOn(Dispatchers.IO).buffer(1)
+
+    override suspend fun playlist(playlistId: String): PlaylistContents =
+        withContext(Dispatchers.IO) {
+            var contents: PlaylistContents? = null
+            client.stream("getPlaylist", mapOf("id" to playlistId)) { input ->
+                SubsonicXml.readEntities(
+                    input = input,
+                    entityTag = "playlist",
+                    create = { SubsonicXml.playlist(id, it) to ArrayList<String>() },
+                    onChild = { (_, entryIds), name, attrs, depth ->
+                        if (name == "entry" && depth == 1) entryIds += attrs.attr("id")
+                    },
+                    onEnd = { (playlist, entryIds) -> if (contents == null) contents = PlaylistContents(playlist, entryIds) },
+                )
+            }
+            contents?.takeIf { it.playlist.id.isNotEmpty() }
+                ?: throw SubsonicException(
+                    -1,
+                    "Playlist $playlistId missing from the response",
+                    UiMessage(R.string.error_server_unexpected),
+                )
+        }
+
+    override suspend fun createPlaylist(
+        name: String,
+        songId: String,
+    ): String? =
+        withContext(Dispatchers.IO) {
+            var created: String? = null
+            client.stream("createPlaylist", listOf("name" to name, "songId" to songId)) { input ->
+                SubsonicXml.readEntities(
+                    input = input,
+                    entityTag = "playlist",
+                    create = { it.attr("id") },
+                    onEnd = { if (created == null) created = it.ifEmpty { null } },
+                )
+            }
+            created
+        }
+
+    override suspend fun updatePlaylist(
+        playlistId: String,
+        songIdsToAdd: List<String>,
+        entryIndexesToRemove: List<Int>,
+    ) {
+        withContext(Dispatchers.IO) {
+            // Removing the highest indexes first keeps each later request's indexes valid.
+            entryIndexesToRemove.distinct().sortedDescending().chunked(PLAYLIST_EDIT_CHUNK).forEach { chunk ->
+                client.check("updatePlaylist", updateParams(playlistId, emptyList(), chunk))
+            }
+            songIdsToAdd.chunked(PLAYLIST_EDIT_CHUNK).forEach { chunk ->
+                client.check("updatePlaylist", updateParams(playlistId, chunk, emptyList()))
+            }
+        }
+    }
+
+    private fun updateParams(
+        playlistId: String,
+        add: List<String>,
+        remove: List<Int>,
+    ): List<Pair<String, String>> =
+        listOf("playlistId" to playlistId) +
+            add.map { "songIdToAdd" to it } +
+            remove.map { "songIndexToRemove" to it.toString() }
 
     fun streamUri(songId: String) = streamUri(songId, maxBitrate, streamFormat)
 
@@ -373,6 +438,9 @@ class SubsonicSource(
         const val MAX_PAGES = 20_000
         const val THUMBNAIL_SIZE = 384
         const val ARTIST_BIO_TIMEOUT_MS = 15_000L
+
+        // Keeps each edit request's query string well under common URL length limits.
+        const val PLAYLIST_EDIT_CHUNK = 100
     }
 }
 

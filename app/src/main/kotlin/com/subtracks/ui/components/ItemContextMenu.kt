@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Bedtime
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -84,6 +86,7 @@ sealed interface MenuTarget {
         val song: SongModel,
         override val coverArt: CoverArtRef? = null,
         val download: SongDownload? = null,
+        val playlistPosition: Long? = null,
     ) : MenuTarget {
         override val title: String get() = song.title
 
@@ -155,6 +158,7 @@ class ItemActions(
     val viewArtist: ((String) -> Unit)? = null,
     val sleepTimer: (() -> Unit)? = null,
     val sleepTimerStatus: Flow<SleepTimerStatus> = emptyFlow(),
+    val removeFromPlaylist: ((MenuTarget.Song) -> Unit)? = null,
 )
 
 class ContextMenuHost {
@@ -208,6 +212,7 @@ fun ItemContextMenu(
     onDismiss: () -> Unit,
     onInfo: ((MenuTarget) -> Unit)? = null,
     onChooseArtists: ((List<ArtistRef>) -> Unit)? = null,
+    onAddToPlaylist: ((MenuTarget.Song) -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -255,6 +260,19 @@ fun ItemContextMenu(
             when (target) {
                 is MenuTarget.Song -> {
                     queueItems()
+                    onAddToPlaylist?.let { add ->
+                        MenuItem(
+                            Icons.AutoMirrored.Rounded.PlaylistAdd,
+                            stringResource(R.string.add_to_playlist),
+                        ) { replaceWith { add(target) } }
+                    }
+                    if (target.playlistPosition != null) {
+                        actions.removeFromPlaylist?.let { remove ->
+                            MenuItem(Icons.Rounded.PlaylistRemove, stringResource(R.string.remove_from_playlist)) {
+                                dismiss { remove(target) }
+                            }
+                        }
+                    }
                     DownloadItem(target.download, target.song, actions, ::dismiss)
                     StarItem(
                         current = target.song.starred,

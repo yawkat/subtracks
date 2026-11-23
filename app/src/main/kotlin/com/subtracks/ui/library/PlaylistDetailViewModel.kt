@@ -14,7 +14,9 @@ import com.subtracks.data.model.Song
 import com.subtracks.data.model.SongDownload
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
+import com.subtracks.data.repo.PlaylistRepository
 import com.subtracks.data.repo.SourceRepository
+import com.subtracks.data.repo.editableBy
 import com.subtracks.playback.PlaybackController
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +35,7 @@ class PlaylistDetailViewModel(
     private val sourceRepository: SourceRepository,
     private val playbackController: PlaybackController,
     private val downloadRepository: DownloadRepository,
+    private val playlistRepository: PlaylistRepository,
     private val playlistId: String,
 ) : ViewModel() {
     private val sourceId = libraryRepository.activeSourceId.filterNotNull()
@@ -51,6 +54,20 @@ class PlaylistDetailViewModel(
         downloadRepository.states()
 
     val offline: StateFlow<Boolean> = sourceRepository.offline
+
+    /** Whether songs can be removed now: the user owns the playlist and the server is reachable. */
+    val canEdit: StateFlow<Boolean> =
+        combine(playlist, playlistRepository.username, offline) { playlist, username, offline ->
+            !offline && playlist?.editableBy(username) == true
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun removeSong(
+        position: Long,
+        song: Song,
+    ) {
+        val current = playlist.value ?: return
+        playlistRepository.launchRemove(current, position, song.id)
+    }
 
     val downloadStatus: StateFlow<ListDownloadStatus> =
         sourceId

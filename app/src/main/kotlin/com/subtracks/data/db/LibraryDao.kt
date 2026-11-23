@@ -936,6 +936,21 @@ interface LibraryDao {
         playlistId: String,
     ): Flow<Playlist?>
 
+    @Query(
+        "SELECT * FROM playlists WHERE sourceId = :sourceId AND (owner IS NULL OR owner = :owner COLLATE NOCASE) " +
+            "ORDER BY $PLAYLIST_ORDER_BY_NAME",
+    )
+    fun playlistsOwnedBy(
+        sourceId: Long,
+        owner: String,
+    ): Flow<List<Playlist>>
+
+    @Query("SELECT DISTINCT playlistId FROM playlist_songs WHERE sourceId = :sourceId AND songId = :songId")
+    fun playlistIdsHoldingSong(
+        sourceId: Long,
+        songId: String,
+    ): Flow<List<String>>
+
     @Query("SELECT * FROM songs WHERE sourceId = :sourceId AND albumId = :albumId ORDER BY disc, track, id")
     fun songsByAlbum(
         sourceId: Long,

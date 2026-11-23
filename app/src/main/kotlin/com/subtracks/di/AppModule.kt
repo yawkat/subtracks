@@ -25,12 +25,14 @@ import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
 import com.subtracks.data.repo.NetworkServerActionSink
 import com.subtracks.data.repo.PendingServerActionSink
+import com.subtracks.data.repo.PlaylistRepository
 import com.subtracks.data.repo.QueueRepository
 import com.subtracks.data.repo.SourceRepository
 import com.subtracks.data.source.ServerActionSink
 import com.subtracks.data.sync.AutoSync
 import com.subtracks.data.sync.SyncManager
 import com.subtracks.data.sync.SyncNotifier
+import com.subtracks.data.sync.SyncStatus
 import com.subtracks.log.Log
 import com.subtracks.playback.MediaSessionConnection
 import com.subtracks.playback.PlaybackController
@@ -101,6 +103,17 @@ fun appModule(
     }
     single { LibraryRepository(get(), get(), get(), get(), get(), toast, scope = get(named("io"))) }
     single<ArtworkSeedStore> { ArtworkSeedRepository(get()) }
+    single {
+        PlaylistRepository(
+            db = get(),
+            sourceRepository = get(),
+            queueRepository = get(),
+            syncRunning = { get<SyncManager>().status.value is SyncStatus.Running },
+            requestSync = { get<SyncManager>().requestSync(silent = true) },
+            showMessage = toast,
+            scope = get(named("io")),
+        )
+    }
     single { SyncManager(get(), get(), get(), get(), preferences = get(), showMessage = toast, scope = get()) }
     single {
         AutoSync(
@@ -164,7 +177,7 @@ fun appModule(
     viewModel { params -> AddSourceViewModel(get(), get(), get(), params.getOrNull(), context.resources) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), params.get()) }
     viewModel { params -> ArtistDetailViewModel(get(), get(), get(), get(), params.get()) }
-    viewModel { params -> PlaylistDetailViewModel(get(), get(), get(), get(), params.get()) }
+    viewModel { params -> PlaylistDetailViewModel(get(), get(), get(), get(), get(), params.get()) }
     viewModel { QueueViewModel(get(), get(), get(), get()) }
 }
 
