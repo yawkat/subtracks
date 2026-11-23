@@ -4,18 +4,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.subtracks.data.db.LibrarySongsQuery
 import com.subtracks.data.model.Album
+import com.subtracks.data.model.AlbumSongItem
 import com.subtracks.data.model.Artist
 import com.subtracks.data.model.BulkDownloadAction
 import com.subtracks.data.model.CoverArtRef
 import com.subtracks.data.model.DownloadList
 import com.subtracks.data.model.ListDownloadStatus
 import com.subtracks.data.model.Playlist
+import com.subtracks.data.model.Song
+import com.subtracks.data.model.SongDownload
 import com.subtracks.data.prefs.AlbumSort
 import com.subtracks.data.prefs.ArtistSort
 import com.subtracks.data.prefs.LibraryListTab
 import com.subtracks.data.prefs.ListQuery
 import com.subtracks.data.prefs.PlaylistSort
+import com.subtracks.data.prefs.SongSort
 import com.subtracks.data.prefs.UserPreferences
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
@@ -113,6 +118,37 @@ class LibraryViewModel(
                     }
             }.cachedIn(viewModelScope)
 
+    val songs: Flow<PagingData<AlbumSongItem>> =
+        libraryRepository.activeSourceId
+            .filterNotNull()
+            .flatMapLatest { sourceId ->
+                combine(
+                    listQueries.getValue(LibraryListTab.Songs),
+                    searches.getValue(LibraryListTab.Songs),
+                    sourceRepository.offline,
+                ) { query, search, offline -> query.librarySongsQuery(search, offline) }
+                    .flatMapLatest { libraryRepository.songs(sourceId, it) }
+            }.cachedIn(viewModelScope)
+
+    val songDownloads: StateFlow<Map<String, SongDownload>> = downloadRepository.states()
+
+    /** Plays the song list as shown, starting at [song], which the list showed at [index]. */
+    fun playSong(
+        song: Song,
+        index: Int,
+    ) {
+        val shown =
+            listQueries
+                .getValue(LibraryListTab.Songs)
+                .value
+                .librarySongsQuery(searches.getValue(LibraryListTab.Songs).value, sourceRepository.offline.value)
+        viewModelScope.launch {
+            val query = libraryRepository.withSortNameMode(shown)
+            val ordinal = libraryRepository.librarySongOrdinal(song.sourceId, query, song.id) ?: index.toLong()
+            playbackController.playLibrary(song.sourceId, query, ordinal)
+        }
+    }
+
     val offline: StateFlow<Boolean> = sourceRepository.offline
 
     fun setOffline(enabled: Boolean) = sourceRepository.setOfflineMode(enabled)
@@ -157,11 +193,14 @@ class LibraryViewModel(
             .flatMapLatest { downloadRepository.statuses(it, DownloadList.Playlist) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    private val noListDownloads: StateFlow<Map<String, ListDownloadStatus>> = MutableStateFlow(emptyMap())
+
     fun downloads(tab: LibraryListTab): StateFlow<Map<String, ListDownloadStatus>> =
         when (tab) {
             LibraryListTab.Albums -> albumDownloads
             LibraryListTab.Artists -> artistDownloads
             LibraryListTab.Playlists -> playlistDownloads
+            LibraryListTab.Songs -> noListDownloads
         }
 
     suspend fun downloadedBytes(
@@ -228,6 +267,20 @@ internal fun ListQuery.albumSort(): AlbumSort = AlbumSort.entries.firstOrNull { 
 internal fun ListQuery.artistSort(): ArtistSort = ArtistSort.entries.firstOrNull { it.name == sort } ?: ArtistSort.Name
 
 internal fun ListQuery.playlistSort(): PlaylistSort = PlaylistSort.entries.firstOrNull { it.name == sort } ?: PlaylistSort.Name
+
+internal fun ListQuery.songSort(): SongSort = SongSort.entries.firstOrNull { it.name == sort } ?: SongSort.Name
+
+internal fun ListQuery.librarySongsQuery(
+    search: String,
+    offline: Boolean,
+): LibrarySongsQuery =
+    LibrarySongsQuery(
+        sort = songSort(),
+        descending = descending,
+        starred = starred,
+        downloaded = downloaded || offline,
+        search = search,
+    )
 
 data class PlaySortAvailability(
     val frequent: Boolean,

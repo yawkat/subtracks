@@ -4,7 +4,11 @@ import androidx.room3.deferredTransaction
 import androidx.room3.immediateTransaction
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
+import com.subtracks.data.db.LibrarySongsQuery
 import com.subtracks.data.db.SubtracksDatabase
+import com.subtracks.data.db.librarySongRankQuery
+import com.subtracks.data.db.librarySongsCountQuery
+import com.subtracks.data.db.librarySongsSliceQuery
 import com.subtracks.data.model.PlaybackCursor
 import com.subtracks.data.model.QueueEntry
 import com.subtracks.data.model.QueueKind
@@ -29,6 +33,8 @@ import kotlin.coroutines.EmptyCoroutineContext
 const val QUEUE_CHUNK = 60
 
 private const val LENGTH_CACHE_LIMIT = 512
+
+private val LIBRARY_DEPENDENCIES = setOf(QueueKind.Song, QueueKind.Album, QueueKind.Starred, QueueKind.Downloaded)
 
 private data class EntryLengthKey(
     val version: Long,
@@ -423,6 +429,26 @@ private val queueKindResolvers =
                     songId: String,
                 ) = dao.starredRank(entry.sourceId, songId)
             },
+        QueueKind.Library to
+            object : QueueKindResolver {
+                override suspend fun length(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                ) = dao.libraryLength(librarySongsCountQuery(entry.sourceId, LibrarySongsQuery.decode(entry.refId)))
+
+                override suspend fun rows(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                    offset: Long,
+                    limit: Int,
+                ) = dao.librarySongs(librarySongsSliceQuery(entry.sourceId, LibrarySongsQuery.decode(entry.refId), offset, limit))
+
+                override suspend fun rank(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                    songId: String,
+                ) = dao.libraryRank(librarySongRankQuery(entry.sourceId, LibrarySongsQuery.decode(entry.refId), songId))
+            },
     )
 
 private fun resolverFor(kind: QueueKind): QueueKindResolver = queueKindResolvers.getValue(kind)
@@ -498,6 +524,11 @@ class QueueRepository(
 
     fun starredEntry(sourceId: Long) = QueueEntry(position = 0, sourceId = sourceId, kind = QueueKind.Starred, refId = "")
 
+    fun libraryEntry(
+        sourceId: Long,
+        query: LibrarySongsQuery,
+    ) = QueueEntry(position = 0, sourceId = sourceId, kind = QueueKind.Library, refId = query.encode())
+
     suspend fun sourceName(
         kind: QueueKind,
         sourceId: Long,
@@ -548,6 +579,10 @@ class QueueRepository(
             }
 
             QueueKind.Starred -> {
+                null
+            }
+
+            QueueKind.Library -> {
                 null
             }
         }
@@ -659,16 +694,30 @@ class QueueRepository(
     ) {
         if (changed.isNotEmpty()) {
             val before = snapshot()
-            val entries = canonicalEntries(before.entries.map { it.entry }, changed)
-            val upNext = canonicalEntries(before.upNext.map { it.entry }, changed)
+            val affected = changed + libraryOriginsAffectedBy(changed, before)
+            val entries = canonicalEntries(before.entries.map { it.entry }, affected)
+            val upNext = canonicalEntries(before.upNext.map { it.entry }, affected)
             val matchingOrigin =
-                before.entries.any { it.entry.origin in changed } || before.upNext.any { it.entry.origin in changed }
+                before.entries.any { it.entry.origin in affected } || before.upNext.any { it.entry.origin in affected }
             if (matchingOrigin) {
                 writeResetLocked(before, entries, upNext, point, pendingOriginSourceId)
                 return
             }
         }
         if (pendingOriginSourceId != null) clearPendingSyncOriginsLocked(pendingOriginSourceId)
+    }
+
+    // A library song list can hold any song and sorts by album, so every song or album change
+    // reaches it; starred and download changes record origins of their own that stand in for songs.
+    private fun libraryOriginsAffectedBy(
+        changed: Set<QueueOrigin>,
+        snapshot: QueueSnapshot,
+    ): Set<QueueOrigin> {
+        val sources = changed.filter { it.kind in LIBRARY_DEPENDENCIES }.mapTo(mutableSetOf()) { it.sourceId }
+        if (sources.isEmpty()) return emptySet()
+        return (snapshot.entries + snapshot.upNext)
+            .map { it.entry.origin }
+            .filterTo(mutableSetOf()) { it.kind == QueueKind.Library && it.sourceId in sources }
     }
 
     private suspend fun clearPendingSyncOriginsLocked(sourceId: Long) =
@@ -1437,6 +1486,7 @@ class QueueRepository(
             QueueKind.Genre -> OrderKey(row.song.id)
             QueueKind.Downloaded -> OrderKey(row.song.id)
             QueueKind.Starred -> OrderKey(row.song.id)
+            QueueKind.Library -> OrderKey(row.song.id)
             QueueKind.Song -> OrderKey(row.song.id)
         }
 

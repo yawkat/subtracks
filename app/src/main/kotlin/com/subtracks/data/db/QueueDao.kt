@@ -4,6 +4,8 @@ import androidx.room3.Dao
 import androidx.room3.Insert
 import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
+import androidx.room3.RawQuery
+import androidx.room3.RoomRawQuery
 import com.subtracks.data.model.AlbumSongItem
 import com.subtracks.data.model.PendingSyncOrigin
 import com.subtracks.data.model.PlaybackCursor
@@ -394,4 +396,13 @@ interface QueueDao {
         sourceId: Long,
         songId: String,
     ): Long?
+
+    @RawQuery
+    suspend fun libraryLength(query: RoomRawQuery): Long
+
+    @RawQuery
+    suspend fun librarySongs(query: RoomRawQuery): List<AlbumSongItem>
+
+    @RawQuery
+    suspend fun libraryRank(query: RoomRawQuery): Long?
 }

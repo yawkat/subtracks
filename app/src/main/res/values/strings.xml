@@ -31,6 +31,7 @@
     <string name="resources_album_name">Albums</string>
     <string name="resources_artist_name">Artists</string>
     <string name="resources_playlist_name">Playlists</string>
+    <string name="resources_song_name">Songs</string>
     <string name="resources_filter_album">Album</string>
     <string name="resources_filter_artist">Artist</string>
     <string name="artist_type_artist">Artist</string>
@@ -48,6 +49,7 @@
     <string name="resources_song_list_delete_all_content">%1$s\n\nDeleting will free %2$s</string>
     <string name="resources_song_list_delete_all_title">Delete downloads</string>
     <string name="resources_sort_by_added">Added</string>
+    <string name="resources_sort_by_album">Album</string>
     <string name="resources_sort_by_artist">Artist</string>
     <string name="resources_sort_by_frequently_played">Frequently played</string>
     <string name="resources_sort_by_name">Name</string>
@@ -167,6 +169,7 @@
     <string name="albums_empty">No albums yet.\nSync with your server to fill your library.</string>
     <string name="artists_empty">No artists yet.</string>
     <string name="playlists_empty">No playlists yet.</string>
+    <string name="songs_empty">No songs yet.</string>
     <string name="sync">Sync</string>
     <string name="list_options">List options</string>
     <string name="search">Search</string>

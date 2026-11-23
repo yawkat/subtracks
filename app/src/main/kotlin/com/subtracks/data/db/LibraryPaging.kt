@@ -5,7 +5,9 @@ import androidx.sqlite.SQLiteStatement
 import com.subtracks.data.prefs.AlbumSort
 import com.subtracks.data.prefs.ArtistSort
 import com.subtracks.data.prefs.PlaylistSort
+import com.subtracks.data.prefs.SongSort
 import com.subtracks.data.prefs.SortNameMode
+import com.subtracks.data.prefs.StarredFilter
 
 // The default filters intentionally omit song_downloads: the unfiltered lists do not need the
 // join, and their paging sources do not observe download writes (including progress updates).
@@ -181,6 +183,160 @@ internal fun rediscoverAlbumsQuery(
                 "cutoff" to cutoff,
             ),
     )
+
+/**
+ * The filter and order of the library's song list. It doubles as the reference of a
+ * [com.subtracks.data.model.QueueKind.Library] queue entry, so the queue plays the list exactly as
+ * it was shown when a song was tapped.
+ */
+data class LibrarySongsQuery(
+    val sort: SongSort = SongSort.Name,
+    val descending: Boolean = false,
+    val starred: StarredFilter = StarredFilter.Any,
+    val downloaded: Boolean = false,
+    val search: String = "",
+    val sortNameMode: SortNameMode = SortNameMode.SortName,
+) {
+    fun encode(): String =
+        listOf(
+            sort.name,
+            if (descending) "1" else "0",
+            starred.name,
+            if (downloaded) "1" else "0",
+            sortNameMode.name,
+            search,
+        ).joinToString("|")
+
+    companion object {
+        fun decode(refId: String): LibrarySongsQuery {
+            val parts = refId.split("|", limit = 6)
+            return LibrarySongsQuery(
+                sort = SongSort.entries.firstOrNull { it.name == parts.getOrNull(0) } ?: SongSort.Name,
+                descending = parts.getOrNull(1) == "1",
+                starred = StarredFilter.entries.firstOrNull { it.name == parts.getOrNull(2) } ?: StarredFilter.Any,
+                downloaded = parts.getOrNull(3) == "1",
+                sortNameMode = SortNameMode.entries.firstOrNull { it.name == parts.getOrNull(4) } ?: SortNameMode.SortName,
+                search = parts.getOrNull(5).orEmpty(),
+            )
+        }
+    }
+}
+
+private const val SONG_COLUMNS = "songs.*, albums.coverArt AS coverArt"
+
+private const val SONGS_FROM = """
+FROM songs LEFT JOIN albums ON albums.sourceId = songs.sourceId AND albums.id = songs.albumId
+WHERE songs.sourceId = :sourceId
+AND (:starredFilter = 0 OR (:starredFilter = 1 AND songs.starred IS NOT NULL) OR (:starredFilter = 2 AND songs.starred IS NULL))
+AND (:search = ''
+    OR (length(:search) >= $SEARCH_MIN_LENGTH AND songs.rowid IN (SELECT rowid FROM song_search
+        WHERE song_search MATCH '"' || replace(:search, '"', '""') || '"'))
+    OR (length(:search) < $SEARCH_MIN_LENGTH AND (instr(lower(songs.title), lower(:search)) > 0
+        OR instr(lower(songs.artist), lower(:search)) > 0
+        OR instr(lower(songs.sortName), lower(:search)) > 0
+        OR instr(lower(songs.artistSort), lower(:search)) > 0)))
+"""
+
+private const val SONGS_DOWNLOADED_FILTER = """
+AND EXISTS (SELECT 1 FROM song_downloads sd
+    WHERE sd.sourceId = songs.sourceId AND sd.songId = songs.id AND sd.status = 'Completed')
+"""
+
+private fun LibrarySongsQuery.from(): String = if (downloaded) SONGS_FROM + SONGS_DOWNLOADED_FILTER else SONGS_FROM
+
+private fun LibrarySongsQuery.bindings(sourceId: Long): Map<String, Any?> =
+    mapOf(
+        "sourceId" to sourceId,
+        "starredFilter" to starred.ordinal,
+        "search" to search,
+    )
+
+/** The library's song list, in the order [LibrarySongsQuery] describes. */
+internal fun librarySongsPageQuery(
+    sourceId: Long,
+    query: LibrarySongsQuery,
+): RoomRawQuery =
+    rawQuery(
+        sql = "SELECT $SONG_COLUMNS ${query.from()} ORDER BY ${query.order()}",
+        bindings = query.bindings(sourceId),
+    )
+
+internal fun librarySongsSliceQuery(
+    sourceId: Long,
+    query: LibrarySongsQuery,
+    offset: Long,
+    limit: Int,
+): RoomRawQuery =
+    rawQuery(
+        sql = "SELECT $SONG_COLUMNS ${query.from()} ORDER BY ${query.order()} LIMIT :limit OFFSET :offset",
+        bindings = query.bindings(sourceId) + mapOf("limit" to limit, "offset" to offset),
+    )
+
+internal fun librarySongsCountQuery(
+    sourceId: Long,
+    query: LibrarySongsQuery,
+): RoomRawQuery =
+    rawQuery(
+        sql = "SELECT COUNT(*) ${query.from()}",
+        bindings = query.bindings(sourceId),
+    )
+
+internal fun librarySongRankQuery(
+    sourceId: Long,
+    query: LibrarySongsQuery,
+    songId: String,
+): RoomRawQuery =
+    rawQuery(
+        sql =
+            "SELECT songRank FROM (SELECT songs.id AS rankedId, ROW_NUMBER() OVER (ORDER BY ${query.order()}) - 1 AS songRank " +
+                "${query.from()}) WHERE rankedId = :songId",
+        bindings = query.bindings(sourceId) + mapOf("songId" to songId),
+    )
+
+private fun songNameKey(mode: SortNameMode): String =
+    when (mode) {
+        SortNameMode.SortName -> "songs.sortName COLLATE NOCASE"
+        SortNameMode.Name -> "songs.title COLLATE NOCASE"
+        SortNameMode.NonLatin -> "(CASE WHEN songs.title GLOB '*[A-Za-z]*' THEN songs.title ELSE songs.sortName END) COLLATE NOCASE"
+    }
+
+private fun songArtistKey(mode: SortNameMode): String =
+    when (mode) {
+        SortNameMode.SortName -> "songs.artistSort COLLATE NOCASE"
+        SortNameMode.Name -> "songs.artist COLLATE NOCASE"
+        SortNameMode.NonLatin -> "(CASE WHEN songs.artist GLOB '*[A-Za-z]*' THEN songs.artist ELSE songs.artistSort END) COLLATE NOCASE"
+    }
+
+private fun songAlbumKey(mode: SortNameMode): String =
+    when (mode) {
+        SortNameMode.SortName -> {
+            "COALESCE(albums.sortName, songs.album) COLLATE NOCASE"
+        }
+
+        SortNameMode.Name -> {
+            "songs.album COLLATE NOCASE"
+        }
+
+        SortNameMode.NonLatin -> {
+            "(CASE WHEN songs.album GLOB '*[A-Za-z]*' THEN songs.album ELSE COALESCE(albums.sortName, songs.album) END) COLLATE NOCASE"
+        }
+    }
+
+private fun LibrarySongsQuery.order(): String {
+    val name = songNameKey(sortNameMode)
+    val album = listOf(songAlbumKey(sortNameMode) to false, "songs.albumId" to false, "songs.disc" to false, "songs.track" to false)
+    val terms =
+        when (sort) {
+            SongSort.Name -> listOf(name to false)
+            SongSort.Artist -> listOf(songArtistKey(sortNameMode) to false) + album
+            SongSort.Album -> album
+            SongSort.Added -> listOf("songs.created" to true, name to false)
+            SongSort.Starred -> listOf("songs.starred" to true, name to false)
+        } + ("songs.id" to false)
+    return terms.joinToString(", ") { (term, termDescending) ->
+        if (termDescending != descending) "$term DESC" else term
+    }
+}
 
 // RoomRawQuery takes a positional bind function, but SQLite gives a repeated named parameter one
 // index, so the SQL can keep its names and only the first-appearance order needs binding.

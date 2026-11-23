@@ -1,6 +1,7 @@
 package com.subtracks.playback
 
 import com.subtracks.UiMessage
+import com.subtracks.data.db.LibrarySongsQuery
 import com.subtracks.data.model.ArtistRef
 import com.subtracks.data.model.AudioEncoding
 import com.subtracks.data.model.CoverArtRef
@@ -281,6 +282,12 @@ class PlaybackController(
         sourceId: Long,
         startOrdinal: Long,
     ) = play(queueRepository.starredEntry(sourceId), startOrdinal)
+
+    fun playLibrary(
+        sourceId: Long,
+        query: LibrarySongsQuery,
+        startOrdinal: Long,
+    ) = play(queueRepository.libraryEntry(sourceId, query), startOrdinal)
 
     fun playAlbumInOrder(
         sourceId: Long,
