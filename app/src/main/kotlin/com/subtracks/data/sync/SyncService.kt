@@ -20,6 +20,7 @@ import com.subtracks.data.model.Song
 import com.subtracks.data.model.SongArtistRef
 import com.subtracks.data.model.SongGenre
 import com.subtracks.data.source.MusicSource
+import com.subtracks.data.source.PlaylistContents
 import java.util.Arrays
 
 class SyncService(
@@ -76,6 +77,23 @@ class SyncService(
             pruned = pruned,
             changedOrigins = changedOrigins.toSet(),
         )
+    }
+
+    /**
+     * Mirrors one playlist the app just edited on the server, without a full sync, and returns the
+     * queue origins that changed.
+     */
+    suspend fun syncPlaylist(contents: PlaylistContents): Set<QueueOrigin> {
+        val playlistId = contents.playlist.id
+        write("playlists", primaryKey, listOf(contents.playlist), onChanged = { changedOrigins += origin(QueueKind.Playlist, it.id) }) {
+            it.columns()
+        }
+        val songs = contents.songs()
+        write("playlist_songs", playlistSongKey, songs, onChanged = { changedOrigins += origin(QueueKind.Playlist, playlistId) }) {
+            it.columns()
+        }
+        deletePlaylistSongsFrom(playlistId, songs.size.toLong())
+        return changedOrigins.toSet()
     }
 
     private suspend fun syncArtists(): Boolean {

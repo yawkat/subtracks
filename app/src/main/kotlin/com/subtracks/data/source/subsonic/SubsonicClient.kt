@@ -30,6 +30,12 @@ class SubsonicClient(
     fun uri(
         method: String,
         params: Map<String, String> = emptyMap(),
+    ): HttpUrl = uri(method, params.toList())
+
+    /** Builds a request URL; unlike the map overload, a key may repeat (`songId=a&songId=b`). */
+    fun uri(
+        method: String,
+        params: List<Pair<String, String>>,
     ): HttpUrl {
         val builder = baseUrl.newBuilder().addPathSegments("rest/$method.view")
         builder.addQueryParameter("v", API_VERSION)
@@ -53,9 +59,23 @@ class SubsonicClient(
         stream(method, params) { SubsonicXml.readStatus(it) }
     }
 
+    fun check(
+        method: String,
+        params: List<Pair<String, String>>,
+    ) {
+        stream(method, params) { SubsonicXml.readStatus(it) }
+    }
+
     fun <T> stream(
         method: String,
         params: Map<String, String> = emptyMap(),
+        timeoutMs: Long? = null,
+        body: (InputStream) -> T,
+    ): T = stream(method, params.toList(), timeoutMs, body)
+
+    fun <T> stream(
+        method: String,
+        params: List<Pair<String, String>>,
         timeoutMs: Long? = null,
         body: (InputStream) -> T,
     ): T {
@@ -75,7 +95,7 @@ class SubsonicClient(
 
     private fun <T> execute(
         method: String,
-        params: Map<String, String>,
+        params: List<Pair<String, String>>,
         timeoutMs: Long?,
         body: (InputStream) -> T,
     ): T {

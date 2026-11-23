@@ -65,6 +65,7 @@ import com.subtracks.data.model.ArtistRef
 import com.subtracks.data.model.Song
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
+import com.subtracks.data.repo.PlaylistRepository
 import com.subtracks.data.repo.SourceRepository
 import com.subtracks.playback.PlaybackController
 import com.subtracks.ui.components.AlbumInfoDialog
@@ -74,6 +75,7 @@ import com.subtracks.ui.components.ContextMenuHost
 import com.subtracks.ui.components.ItemContextMenu
 import com.subtracks.ui.components.LoadingState
 import com.subtracks.ui.components.MenuTarget
+import com.subtracks.ui.components.PlaylistChecklistSheet
 import com.subtracks.ui.components.PlaylistInfoDialog
 import com.subtracks.ui.components.SongInfoDialog
 import com.subtracks.ui.components.statusBarScrim
@@ -226,6 +228,8 @@ private fun MainNavigation() {
     val nowPlayingLauncher = koinInject<NowPlayingLauncher>()
     val libraryRepository = koinInject<LibraryRepository>()
     val downloadRepository = koinInject<DownloadRepository>()
+    val playlistRepository = koinInject<PlaylistRepository>()
+    val offline by koinInject<SourceRepository>().offline.collectAsStateWithLifecycle()
     val playback by playbackController.state.collectAsStateWithLifecycle()
     val downloads by downloadRepository.states().collectAsStateWithLifecycle()
     var showingQueue by rememberSaveable { mutableStateOf(false) }
@@ -238,6 +242,7 @@ private fun MainNavigation() {
     val contextMenuHost = remember { ContextMenuHost() }
     var infoTarget by remember { mutableStateOf<MenuTarget?>(null) }
     var artistChooser by remember { mutableStateOf<List<ArtistRef>?>(null) }
+    var playlistTarget by remember { mutableStateOf<MenuTarget.Song?>(null) }
 
     val activeSourceId by libraryRepository.activeSourceId.collectAsStateWithLifecycle(initialValue = null)
     var previousSourceId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -783,6 +788,24 @@ private fun MainNavigation() {
                     onDismiss = { contextMenuHost.dismiss() },
                     onInfo = { infoTarget = it },
                     onChooseArtists = { artistChooser = it },
+                    onAddToPlaylist = if (offline) null else { target -> playlistTarget = target },
+                )
+            }
+
+            playlistTarget?.let { target ->
+                val song = target.song
+                val playlists by
+                    remember(song.sourceId) { playlistRepository.editablePlaylists(song.sourceId) }
+                        .collectAsStateWithLifecycle(initialValue = emptyList())
+                val holding by
+                    remember(song.sourceId, song.id) { playlistRepository.playlistsHolding(song.sourceId, song.id) }
+                        .collectAsStateWithLifecycle(initialValue = null)
+                PlaylistChecklistSheet(
+                    title = target.title,
+                    playlists = playlists,
+                    holding = holding,
+                    onSave = { changes -> playlistRepository.launchApply(song.sourceId, song.id, changes) },
+                    onClose = { playlistTarget = null },
                 )
             }
 

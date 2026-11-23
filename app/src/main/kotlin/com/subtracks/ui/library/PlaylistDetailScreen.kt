@@ -59,6 +59,7 @@ fun PlaylistDetailRoute(
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val offline by viewModel.offline.collectAsStateWithLifecycle()
+    val canEdit by viewModel.canEdit.collectAsStateWithLifecycle()
     CloseWhenDownloadsGone(downloadStatus.downloaded, offline, onBack)
     val pendingDelete = rememberPendingDownloadDelete(contextMenuHost?.dismissals ?: emptyFlow()) { _, _ -> viewModel.downloadedBytes() }
     val playback by playbackController.state.collectAsStateWithLifecycle()
@@ -79,6 +80,12 @@ fun PlaylistDetailRoute(
             setStar = setStar,
             viewAlbum = onViewAlbum,
             viewArtist = onViewArtist,
+            removeFromPlaylist =
+                if (canEdit) {
+                    { target -> target.playlistPosition?.let { viewModel.removeSong(it, target.song) } }
+                } else {
+                    null
+                },
         )
     PlaylistDetailScreen(
         playlist = playlist,
@@ -148,7 +155,7 @@ fun PlaylistDetailScreen(
             )
         },
         content = { rowModifier ->
-            items(count = songs.itemCount, key = songs.itemKey { it.song.id }) { index ->
+            items(count = songs.itemCount, key = songs.itemKey { it.position }) { index ->
                 val item = songs[index]
                 if (item != null) {
                     SongRow(
@@ -162,7 +169,9 @@ fun PlaylistDetailScreen(
                             rowModifier.combinedClickable(
                                 onClick = { onSongClick(item.position) },
                                 onLongClick = {
-                                    onSongLongClick(MenuTarget.Song(item.song, coverArt(item.coverArt, true), downloads[item.song.id]))
+                                    onSongLongClick(
+                                        MenuTarget.Song(item.song, coverArt(item.coverArt, true), downloads[item.song.id], item.position),
+                                    )
                                 },
                             ),
                     )
