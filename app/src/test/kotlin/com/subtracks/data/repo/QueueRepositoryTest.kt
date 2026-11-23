@@ -3,6 +3,7 @@ package com.subtracks.data.repo
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.subtracks.data.db.LibrarySongsQuery
 import com.subtracks.data.db.SubtracksDatabase
 import com.subtracks.data.db.createTestDatabase
 import com.subtracks.data.model.Album
@@ -16,6 +17,8 @@ import com.subtracks.data.model.Song
 import com.subtracks.data.model.SongDownload
 import com.subtracks.data.model.Source
 import com.subtracks.data.model.UpNextEntry
+import com.subtracks.data.prefs.SongSort
+import com.subtracks.data.prefs.StarredFilter
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,6 +78,72 @@ class QueueRepositoryTest {
 
             assertEquals(3, snapshot.size)
             assertEquals(listOf("s1", "s3", "s4"), resolveAll(snapshot))
+        }
+
+    @Test
+    fun libraryEntryResolvesTheSongListInItsSortAndFilter() =
+        runTest {
+            seedLibrary()
+            db.libraryDao().upsertSongs(
+                listOf(
+                    song("s2", "al1", track = 2, album = "First Album", starred = 10, created = 3),
+                    song("s4", "al2", track = 1, album = "Second Album", starred = 30, created = 1),
+                    song("s5", "al2", track = 2, album = "Second Album", starred = 20, created = 2),
+                ),
+            )
+            db.downloadDao().upsert(SongDownload(1, "s5", DownloadStatus.Completed))
+            db.downloadDao().upsert(SongDownload(1, "s3", DownloadStatus.Running))
+
+            suspend fun resolve(query: LibrarySongsQuery) = resolveAll(repository.snapshotAfter(listOf(repository.libraryEntry(1, query))))
+
+            assertEquals(listOf("s1", "s2", "s3", "s4", "s5"), resolve(LibrarySongsQuery()))
+            assertEquals(listOf("s5", "s4", "s3", "s2", "s1"), resolve(LibrarySongsQuery(descending = true)))
+            assertEquals(listOf("s4", "s5", "s2"), resolve(LibrarySongsQuery(sort = SongSort.Starred, starred = StarredFilter.Starred)))
+            assertEquals(listOf("s1", "s3"), resolve(LibrarySongsQuery(starred = StarredFilter.NotStarred)))
+            assertEquals(listOf("s2", "s5", "s4", "s1", "s3"), resolve(LibrarySongsQuery(sort = SongSort.Added)))
+            assertEquals(listOf("s5"), resolve(LibrarySongsQuery(downloaded = true)))
+            assertEquals(listOf("s4"), resolve(LibrarySongsQuery(search = "Song s4")))
+        }
+
+    @Test
+    fun libraryEntrySortedByAlbumKeepsEachAlbumInTrackOrder() =
+        runTest {
+            seedLibrary()
+            db.libraryDao().upsertSongs(listOf(song("s6", "al1", track = 4, album = "First Album", title = "Song s0")))
+
+            suspend fun resolve(query: LibrarySongsQuery) = resolveAll(repository.snapshotAfter(listOf(repository.libraryEntry(1, query))))
+
+            assertEquals(listOf("s6", "s1", "s2", "s3", "s4", "s5"), resolve(LibrarySongsQuery()))
+            assertEquals(listOf("s1", "s2", "s3", "s6", "s4", "s5"), resolve(LibrarySongsQuery(sort = SongSort.Album)))
+            assertEquals(listOf("s5", "s4", "s6", "s3", "s2", "s1"), resolve(LibrarySongsQuery(sort = SongSort.Album, descending = true)))
+        }
+
+    @Test
+    fun aSongChangeResetsALibraryEntry() =
+        runTest {
+            seedLibrary()
+            db.libraryDao().upsertSongs(listOf(song("s2", "al1", track = 2, album = "First Album", starred = 10)))
+            repository.snapshotAfter(listOf(repository.libraryEntry(1, LibrarySongsQuery(starred = StarredFilter.Starred))))
+            val point = repository.captureResetPoint()
+            db.libraryDao().upsertSongs(listOf(song("s4", "al2", track = 1, album = "Second Album", starred = 20)))
+
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Song, 1, "s4")), point)
+
+            assertEquals(listOf("s2", "s4"), resolveAll(repository.snapshot()))
+        }
+
+    @Test
+    fun aChangeInAnotherSourceLeavesALibraryEntryAlone() =
+        runTest {
+            seedLibrary()
+            db.libraryDao().upsertSongs(listOf(song("s2", "al1", track = 2, album = "First Album", starred = 10)))
+            repository.snapshotAfter(listOf(repository.libraryEntry(1, LibrarySongsQuery(starred = StarredFilter.Starred))))
+            val point = repository.captureResetPoint()
+            val version = repository.contentVersion()
+
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Song, 2, "s4")), point)
+
+            assertEquals(version, repository.contentVersion())
         }
 
     @Test
@@ -1512,6 +1581,9 @@ class QueueRepositoryTest {
     fun starredRankLookupDoesNotResolveSongRows() = runTest { assertRankLookupDoesNotResolveSongRows(QueueKind.Starred) }
 
     @Test
+    fun libraryRankLookupDoesNotResolveSongRows() = runTest { assertRankLookupDoesNotResolveSongRows(QueueKind.Library) }
+
+    @Test
     fun upNextCombinedIndexOfCountsFromTheAnchorIntoTheBlock() =
         runTest {
             seedLibrary()
@@ -1701,6 +1773,7 @@ class QueueRepositoryTest {
                 QueueKind.Genre -> repository.genreEntry(1, "Rock")
                 QueueKind.Downloaded -> repository.downloadedEntry(1)
                 QueueKind.Starred -> repository.starredEntry(1)
+                QueueKind.Library -> repository.libraryEntry(1, LibrarySongsQuery())
                 else -> error("Unsupported kind $kind")
             }
         val snapshot = repository.snapshotAfter(listOf(entry))

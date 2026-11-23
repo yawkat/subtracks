@@ -6,9 +6,12 @@ import androidx.paging.PagingData
 import androidx.paging.PagingSource
 import com.subtracks.R
 import com.subtracks.UiMessage
+import com.subtracks.data.db.LibrarySongsQuery
 import com.subtracks.data.db.SubtracksDatabase
 import com.subtracks.data.db.albumsPageQuery
 import com.subtracks.data.db.artistsPageQuery
+import com.subtracks.data.db.librarySongRankQuery
+import com.subtracks.data.db.librarySongsPageQuery
 import com.subtracks.data.db.playlistsPageQuery
 import com.subtracks.data.db.rediscoverAlbumsQuery
 import com.subtracks.data.model.Album
@@ -256,6 +259,29 @@ class LibraryRepository(
                 )
             if (downloaded) dao.downloadedPlaylistsPaging(query) else dao.playlistsPaging(query)
         }
+
+    /** The library's song list; [query]'s name mode is replaced by the user's current one. */
+    fun songs(
+        sourceId: Long,
+        query: LibrarySongsQuery,
+    ): Flow<PagingData<AlbumSongItem>> =
+        userPreferences.sortNameMode().flatMapLatest { mode ->
+            val resolved = query.copy(sortNameMode = mode)
+            pager(60, enablePlaceholders = true) {
+                val dao = db.libraryDao()
+                val raw = librarySongsPageQuery(sourceId, resolved)
+                if (resolved.downloaded) dao.downloadedLibrarySongsPaging(raw) else dao.librarySongsPaging(raw)
+            }
+        }
+
+    suspend fun withSortNameMode(query: LibrarySongsQuery): LibrarySongsQuery =
+        query.copy(sortNameMode = userPreferences.sortNameMode().first())
+
+    suspend fun librarySongOrdinal(
+        sourceId: Long,
+        query: LibrarySongsQuery,
+        songId: String,
+    ): Long? = db.queueDao().libraryRank(librarySongRankQuery(sourceId, query, songId))
 
     fun album(
         sourceId: Long,

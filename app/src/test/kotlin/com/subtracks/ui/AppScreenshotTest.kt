@@ -36,6 +36,7 @@ import coil3.test.FakeImageLoaderEngine
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.subtracks.data.model.Album
+import com.subtracks.data.model.AlbumSongItem
 import com.subtracks.data.model.Artist
 import com.subtracks.data.model.ArtistAlbums
 import com.subtracks.data.model.CoverArtRef
@@ -184,6 +185,13 @@ class AppScreenshotTest {
         setLibraryContent(LibraryTab.Playlists)
         awaitText("Late Night")
         composeRule.onRoot().captureRoboImage("src/test/screenshots/library_playlists.png")
+    }
+
+    @Test
+    fun librarySongs() {
+        setLibraryContent(LibraryTab.Songs)
+        awaitText("Pyramid Song")
+        composeRule.onRoot().captureRoboImage("src/test/screenshots/library_songs.png")
     }
 
     @Test
@@ -609,6 +617,14 @@ class AppScreenshotTest {
     }
 
     private fun setLibraryContent(tab: LibraryTab) {
+        val songs =
+            if (tab == LibraryTab.Songs) {
+                Fixtures.songs
+                    .sortedBy { it.title }
+                    .map { song -> AlbumSongItem(song, Fixtures.albums.firstOrNull { it.id == song.albumId }?.coverArt) }
+            } else {
+                emptyList()
+            }
         composeRule.setContent {
             SubtracksTheme {
                 LibraryScreen(
@@ -617,6 +633,8 @@ class AppScreenshotTest {
                     albums = remember { flowOf(PagingData.from(Fixtures.albums)) },
                     artists = remember { flowOf(PagingData.from(Fixtures.artists)) },
                     playlists = remember { flowOf(PagingData.from(Fixtures.playlists)) },
+                    songs = remember { flowOf(PagingData.from(songs)) },
+                    playingSongId = "s-pyramid".takeIf { tab == LibraryTab.Songs },
                     coverArt = { id, _ -> id?.let { CoverArtRef(it, "test:$it") } },
                     artistArt = { artist ->
                         ArtistArt(

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.FilterAltOff
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Search
@@ -109,17 +110,21 @@ import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.subtracks.R
 import com.subtracks.data.model.Album
+import com.subtracks.data.model.AlbumSongItem
 import com.subtracks.data.model.Artist
 import com.subtracks.data.model.BulkDownloadAction
 import com.subtracks.data.model.CoverArtRef
 import com.subtracks.data.model.DownloadList
 import com.subtracks.data.model.ListDownloadStatus
 import com.subtracks.data.model.Playlist
+import com.subtracks.data.model.Song
+import com.subtracks.data.model.SongDownload
 import com.subtracks.data.prefs.AlbumSort
 import com.subtracks.data.prefs.ArtistSort
 import com.subtracks.data.prefs.LibraryListTab
 import com.subtracks.data.prefs.ListQuery
 import com.subtracks.data.prefs.PlaylistSort
+import com.subtracks.data.prefs.SongSort
 import com.subtracks.data.prefs.StarredFilter
 import com.subtracks.data.source.StarType
 import com.subtracks.playback.PlaybackController
@@ -140,6 +145,8 @@ import com.subtracks.ui.theme.librarySurfaceColor
 import com.subtracks.ui.theme.playerSurfaceColor
 import com.subtracks.ui.theme.rememberArtworkColors
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -153,6 +160,7 @@ enum class LibraryTab(
     Home(R.string.navigation_tabs_home, Icons.Rounded.Home),
     Albums(R.string.resources_album_name, Icons.Rounded.Album),
     Artists(R.string.resources_artist_name, Icons.Rounded.Person),
+    Songs(R.string.resources_song_name, Icons.Rounded.MusicNote),
     Playlists(R.string.resources_playlist_name, Icons.AutoMirrored.Rounded.PlaylistPlay),
 }
 
@@ -214,6 +222,16 @@ fun sortOptionsFor(
                 SortOption(PlaylistSort.Name.name, R.string.resources_sort_by_name),
                 SortOption(PlaylistSort.Added.name, R.string.resources_sort_by_added, descendingByDefault = true),
                 SortOption(PlaylistSort.Updated.name, R.string.resources_sort_by_updated, descendingByDefault = true),
+            )
+        }
+
+        LibraryTab.Songs -> {
+            listOf(
+                SortOption(SongSort.Name.name, R.string.resources_sort_by_name),
+                SortOption(SongSort.Artist.name, R.string.resources_sort_by_artist),
+                SortOption(SongSort.Album.name, R.string.resources_sort_by_album),
+                SortOption(SongSort.Added.name, R.string.resources_sort_by_added, descendingByDefault = true),
+                SortOption(SongSort.Starred.name, R.string.resources_filter_starred, descendingByDefault = true),
             )
         }
 
@@ -296,6 +314,13 @@ fun LibraryRoute(
         albums = viewModel.albums,
         artists = viewModel.artists,
         playlists = viewModel.playlists,
+        songs = viewModel.songs,
+        onSongClick = { song, index ->
+            focusManager.clearFocus()
+            viewModel.playSong(song, index)
+        },
+        playingSongId = playback.item?.id,
+        songDownloads = viewModel.songDownloads,
         coverArt = viewModel::coverArt,
         artistArt = { viewModel.artistArt(it) },
         onAlbumClick = onAlbumClick,
@@ -405,6 +430,10 @@ fun LibraryScreen(
     artistDownloads: Map<String, ListDownloadStatus> = emptyMap(),
     playlistDownloads: Map<String, ListDownloadStatus> = emptyMap(),
     dismissals: Flow<Unit> = emptyFlow(),
+    songs: Flow<PagingData<AlbumSongItem>> = emptyFlow(),
+    onSongClick: (Song, Int) -> Unit = { _, _ -> },
+    playingSongId: String? = null,
+    songDownloads: StateFlow<Map<String, SongDownload>> = remember { MutableStateFlow(emptyMap()) },
     homeContent: @Composable (topInset: Dp, bottomInset: Dp) -> Unit = { _, _ -> },
 ) {
     val pagerState =
@@ -526,6 +555,24 @@ fun LibraryScreen(
                             downloadStatuses = artistDownloads,
                             scrollToTopKey = scrollToTopKey,
                             artistArt = artistArt,
+                        )
+                    }
+
+                    LibraryTab.Songs -> {
+                        LibrarySongsContent(
+                            songs.collectAsLazyPagingItems(),
+                            coverArt,
+                            listBottomInset,
+                            onSongClick,
+                            onLongClick = onItemLongClick,
+                            playingSongId = playingSongId,
+                            downloads = songDownloads.collectAsStateWithLifecycle().value,
+                            filtered = filtersActive,
+                            onClearFilters = onClearFilters,
+                            resetKey = resetKey,
+                            topInset = listTopInset,
+                            onSync = onSync,
+                            scrollToTopKey = scrollToTopKey,
                         )
                     }
 

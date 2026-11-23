@@ -24,6 +24,9 @@ enum class ArtistSort { Name, AlbumCount, Starred, Frequent, Recent }
 
 enum class PlaylistSort { Name, Added, Updated }
 
+// No play-count sorts: playing a song would reorder the very list its queue plays from.
+enum class SongSort { Name, Artist, Album, Added, Starred }
+
 enum class LibraryListTab(
     val key: String,
     val defaultSort: String,
@@ -32,6 +35,7 @@ enum class LibraryListTab(
     Albums("albums", AlbumSort.Name.name, true),
     Artists("artists", ArtistSort.Name.name, true),
     Playlists("playlists", PlaylistSort.Name.name, false),
+    Songs("songs", SongSort.Name.name, true),
 }
 
 enum class StarredFilter { Any, Starred, NotStarred }
