@@ -54,6 +54,11 @@ private val Context.preferences: DataStore<Preferences> by preferencesDataStore(
 
 const val DEFAULT_SYNC_INTERVAL_MINUTES = 24 * 60
 
+const val MIN_SLEEP_TIMER_MINUTES = 5
+const val MAX_SLEEP_TIMER_MINUTES = 120
+const val SLEEP_TIMER_STEP_MINUTES = 5
+const val DEFAULT_SLEEP_TIMER_MINUTES = 30
+
 const val MIN_REPLAY_GAIN_PREAMP_DB = -15f
 const val MAX_REPLAY_GAIN_PREAMP_DB = 15f
 
@@ -168,6 +173,18 @@ class UserPreferences(
     }
 
     private val scrobblingKey = booleanPreferencesKey("scrobbling")
+
+    /** The sleep timer length last started, which the sleep timer sheet opens on. */
+    fun sleepTimerMinutes(): Flow<Int> =
+        store.data.map { prefs ->
+            (prefs[sleepTimerMinutesKey] ?: DEFAULT_SLEEP_TIMER_MINUTES).coerceIn(MIN_SLEEP_TIMER_MINUTES, MAX_SLEEP_TIMER_MINUTES)
+        }
+
+    suspend fun setSleepTimerMinutes(value: Int) {
+        store.edit { prefs -> prefs[sleepTimerMinutesKey] = value.coerceIn(MIN_SLEEP_TIMER_MINUTES, MAX_SLEEP_TIMER_MINUTES) }
+    }
+
+    private val sleepTimerMinutesKey = intPreferencesKey("sleep_timer_minutes")
 
     fun replayGainMode(): Flow<ReplayGainMode> =
         store.data.map { prefs ->

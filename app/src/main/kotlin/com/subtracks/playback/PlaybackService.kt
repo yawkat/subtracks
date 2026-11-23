@@ -133,6 +133,21 @@ class PlaybackService : MediaSessionService() {
                             ),
                         ),
                 ).build()
+        val sleepTimerDriver =
+            SleepTimerDriver(
+                GlobalContext.get().get(),
+                object : SleepTimerTarget {
+                    override val isStopped: Boolean
+                        get() = exoPlayer.playbackState == Player.STATE_ENDED
+
+                    override fun pause() = exoPlayer.pause()
+
+                    override fun setPauseAtEndOfItem(enabled: Boolean) {
+                        exoPlayer.pauseAtEndOfMediaItems = enabled
+                    }
+                },
+            )
+        sleepTimerDriver.start(scope)
         exoPlayer.addListener(
             object : Player.Listener {
                 override fun onMediaItemTransition(
@@ -140,6 +155,18 @@ class PlaybackService : MediaSessionService() {
                     reason: Int,
                 ) {
                     observeStar(mediaItem?.mediaId)
+                }
+
+                override fun onPlayWhenReadyChanged(
+                    playWhenReady: Boolean,
+                    reason: Int,
+                ) {
+                    if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) sleepTimerDriver.onTrackFinished()
+                    if (playWhenReady) sleepTimerDriver.onPlay()
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) sleepTimerDriver.onTrackFinished()
                 }
             },
         )

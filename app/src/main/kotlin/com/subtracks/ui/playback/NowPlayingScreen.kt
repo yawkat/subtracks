@@ -77,6 +77,7 @@ import com.subtracks.R
 import com.subtracks.data.model.CoverArtRef
 import com.subtracks.data.model.QueueKind
 import com.subtracks.data.model.Song
+import com.subtracks.data.prefs.DEFAULT_SLEEP_TIMER_MINUTES
 import com.subtracks.data.prefs.UserPreferences
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
@@ -85,6 +86,7 @@ import com.subtracks.playback.PlaybackController
 import com.subtracks.playback.PlaybackState
 import com.subtracks.playback.QueueItem
 import com.subtracks.playback.RepeatMode
+import com.subtracks.playback.SleepTimer
 import com.subtracks.ui.components.ArtistChooserSheet
 import com.subtracks.ui.components.ContextMenuHost
 import com.subtracks.ui.components.CoverArt
@@ -196,8 +198,14 @@ fun NowPlayingRoute(
     libraryRepository: LibraryRepository = koinInject(),
     downloadRepository: DownloadRepository = koinInject(),
     userPreferences: UserPreferences = koinInject(),
+    sleepTimer: SleepTimer = koinInject(),
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
+    val sleepTimerUpdates = remember(sleepTimer) { sleepTimerStatus(sleepTimer) }
+    val sleepTimerStatus by sleepTimerUpdates.collectAsStateWithLifecycle(initialValue = SleepTimerStatus.Off)
+    var showSleepTimer by remember { mutableStateOf(false) }
+    val sleepTimerMinutes by remember { userPreferences.sleepTimerMinutes() }
+        .collectAsStateWithLifecycle(initialValue = DEFAULT_SLEEP_TIMER_MINUTES)
     val keepScreenOn by remember { userPreferences.keepScreenOn() }.collectAsStateWithLifecycle(initialValue = false)
     val positionMs by controller.positionMs.collectAsStateWithLifecycle()
     val sourceId = state.context?.sourceId
@@ -227,6 +235,8 @@ fun NowPlayingRoute(
             setStar = setStar,
             viewAlbum = onViewAlbum,
             viewArtist = onViewArtist,
+            sleepTimer = { showSleepTimer = true },
+            sleepTimerStatus = sleepTimerUpdates,
         )
     val art = controller.coverArt(state.item)
     val thumbnail = controller.coverArt(state.item, thumbnail = true)
@@ -291,6 +301,27 @@ fun NowPlayingRoute(
         keepScreenOn = keepScreenOn,
         modifier = modifier,
     )
+
+    if (showSleepTimer) {
+        SleepTimerSheet(
+            status = sleepTimerStatus,
+            initialMinutes = sleepTimerMinutes,
+            onMinutes = { minutes ->
+                showSleepTimer = false
+                sleepTimer.start(minutes * 60_000L)
+                scope.launch { userPreferences.setSleepTimerMinutes(minutes) }
+            },
+            onEndOfTrack = {
+                showSleepTimer = false
+                sleepTimer.startEndOfTrack()
+            },
+            onCancel = {
+                showSleepTimer = false
+                sleepTimer.cancel()
+            },
+            onDismiss = { showSleepTimer = false },
+        )
+    }
 
     if (showArtistChooser) {
         ArtistChooserSheet(
@@ -752,7 +783,7 @@ private fun QueueKind.label(): Int =
         QueueKind.Starred -> R.string.context_kind_starred
     }
 
-private fun formatTime(milliseconds: Long): String {
+internal fun formatTime(milliseconds: Long): String {
     val totalSeconds = (milliseconds / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60

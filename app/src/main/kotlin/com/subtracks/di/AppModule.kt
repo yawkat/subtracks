@@ -36,6 +36,7 @@ import com.subtracks.playback.MediaSessionConnection
 import com.subtracks.playback.PlaybackController
 import com.subtracks.playback.PlayerConnection
 import com.subtracks.playback.Scrobbler
+import com.subtracks.playback.SleepTimer
 import com.subtracks.ui.NowPlayingLauncher
 import com.subtracks.ui.RootViewModel
 import com.subtracks.ui.downloads.DownloadsViewModel
@@ -131,6 +132,7 @@ fun appModule(
     single(createdAtStart = true) { DownloadNotifier(context.applicationContext, get(), scope = get()).also { it.start() } }
     single(createdAtStart = true) { SyncNotifier(context.applicationContext, get<SyncManager>().status, scope = get()).also { it.start() } }
     single<PlayerConnection> { MediaSessionConnection(context.applicationContext, get(), get()) }
+    single { SleepTimer() }
     single { PlaybackController(get(), get(), get(), get(), get(), showMessage = toast, scope = get(named("playback"))) }
     single(createdAtStart = true) {
         val playback = get<PlaybackController>()
