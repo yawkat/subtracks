@@ -2479,6 +2479,31 @@ class PlaybackControllerTest {
     }
 
     @Test
+    fun repeatAllStaysPausedWhenTheQueueEndsPaused() {
+        seedAlbum(3, sourceId = 1)
+
+        controller.playAlbum(1, "al1", 2)
+        await {
+            controller.state.value.item
+                ?.id == "s3"
+        }
+
+        controller.cycleRepeat()
+        assertEquals(RepeatMode.All, controller.state.value.repeat)
+
+        handle.pause()
+        handle.operations.clear()
+        handle.finish()
+        handle.emitEvents()
+        await {
+            controller.state.value.item
+                ?.id == "s1"
+        }
+        assertFalse(handle.playWhenReady)
+        assertFalse(handle.operations.contains("play"))
+    }
+
+    @Test
     fun tappingASongTurnsOffShuffleAndPlaysThatSong() {
         seedAlbum(5, sourceId = 1)
 

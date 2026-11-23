@@ -1351,9 +1351,14 @@ class PlaybackController(
         loadWindow(position, autoplay = player.playWhenReady, startPositionMs = positionMs)
     }
 
+    /**
+     * Moves playback to [target]. An ended player resumes there unless [autoAdvance] is set and it
+     * had been paused before it ended (the sleep timer stopping at the end of a track).
+     */
     private suspend fun QueueMutationScope.jumpToLocked(
         target: Long,
         requestedVersion: Long?,
+        autoAdvance: Boolean = false,
     ) {
         val player = player ?: return
         if (requestedVersion != null && snapshot?.resetVersion != requestedVersion) return
@@ -1376,10 +1381,11 @@ class PlaybackController(
             }
         val wasEnded = player.isEnded
         if (!anchor.changed && dest == current && !wasEnded) return
+        val resume = wasEnded && (!autoAdvance || player.playWhenReady)
         windowJob?.cancel()
         queueRepository.setCursor(dest)
         if (anchor.changed || !inWindow(dest)) {
-            loadWindow(dest, autoplay = player.playWhenReady || wasEnded)
+            loadWindow(dest, autoplay = player.playWhenReady || resume)
             endedHandled = false
             return
         }
@@ -1387,7 +1393,7 @@ class PlaybackController(
         shiftWindowLocked(dest)
         player.ensurePrepared()
         player.seekToIndex(windowIndexOf(dest))
-        if (wasEnded) player.play()
+        if (resume) player.play()
         endedHandled = false
         refresh(dest)
     }
@@ -1915,7 +1921,7 @@ class PlaybackController(
                     if (detachedWindow && detachedPosition == null) {
                         val target = if (repeatMode == RepeatMode.All) downloadedAtOrAfter(snapshot, 0L) else null
                         if (target != null) {
-                            jumpToLocked(target, requestedVersion)
+                            jumpToLocked(target, requestedVersion, autoAdvance = true)
                         } else {
                             stopLocked()
                         }
@@ -1926,7 +1932,7 @@ class PlaybackController(
                     val target =
                         downloadedAtOrAfter(snapshot, from)
                             ?: if (repeatMode == RepeatMode.All) downloadedAtOrAfter(snapshot, 0L) else null
-                    target?.let { jumpToLocked(it, requestedVersion) }
+                    target?.let { jumpToLocked(it, requestedVersion, autoAdvance = true) }
                 }
             }
             return
@@ -1936,7 +1942,7 @@ class PlaybackController(
                 queueRepository.withMutationLock {
                     if (!endJobIsCurrent(endedSnapshot, endedPosition)) return@withMutationLock
                     if (repeatMode != RepeatMode.All) return@withMutationLock
-                    jumpToLocked(0, requestedVersion)
+                    jumpToLocked(0, requestedVersion, autoAdvance = true)
                 }
             }
         }

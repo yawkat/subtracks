@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.subtracks.R
 import com.subtracks.data.model.ArtistRef
 import com.subtracks.data.model.BulkDownloadAction
@@ -60,10 +62,13 @@ import com.subtracks.data.model.ListDownloadStatus
 import com.subtracks.data.model.QueueKind
 import com.subtracks.data.model.SongDownload
 import com.subtracks.data.source.StarType
+import com.subtracks.ui.playback.SleepTimerStatus
+import com.subtracks.ui.playback.sleepTimerLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import com.subtracks.data.model.Album as AlbumModel
 import com.subtracks.data.model.Artist as ArtistModel
@@ -148,6 +153,8 @@ class ItemActions(
     val setStar: (StarType, String, Boolean) -> Unit = { _, _, _ -> },
     val viewAlbum: ((String) -> Unit)? = null,
     val viewArtist: ((String) -> Unit)? = null,
+    val sleepTimer: (() -> Unit)? = null,
+    val sleepTimerStatus: Flow<SleepTimerStatus> = emptyFlow(),
 )
 
 class ContextMenuHost {
@@ -265,6 +272,17 @@ fun ItemContextMenu(
                         }
                     }
                     ArtistItems(target.song.artistRefs, actions, onChooseArtists, ::dismiss, ::replaceWith)
+                    actions.sleepTimer?.let { open ->
+                        val status by actions.sleepTimerStatus.collectAsStateWithLifecycle(SleepTimerStatus.Off)
+                        MenuItem(
+                            Icons.Rounded.Bedtime,
+                            stringResource(R.string.sleep_timer),
+                            trailing =
+                                sleepTimerLabel(status)?.let { label ->
+                                    { Text(label, style = MaterialTheme.typography.labelLarge) }
+                                },
+                        ) { replaceWith(open) }
+                    }
                     onInfo?.let { info ->
                         MenuItem(Icons.Rounded.Info, stringResource(R.string.info)) { dismiss { info(target) } }
                     }

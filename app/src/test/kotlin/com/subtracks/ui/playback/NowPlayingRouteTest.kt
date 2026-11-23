@@ -2,9 +2,14 @@ package com.subtracks.ui.playback
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.subtracks.TEST_TIMEOUT_MS
@@ -27,11 +32,16 @@ import com.subtracks.playback.FakePlayerConnection
 import com.subtracks.playback.FakePlayerHandle
 import com.subtracks.playback.PlaybackController
 import com.subtracks.playback.RepeatMode
+import com.subtracks.playback.SleepTimer
+import com.subtracks.playback.SleepTimerState
+import com.subtracks.ui.components.ContextMenuHost
+import com.subtracks.ui.components.ItemContextMenu
 import com.subtracks.ui.theme.SubtracksTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -161,6 +171,7 @@ class NowPlayingRouteTest {
                     libraryRepository = library,
                     downloadRepository = downloads,
                     userPreferences = prefs,
+                    sleepTimer = SleepTimer(),
                 )
             }
         }
@@ -183,5 +194,79 @@ class NowPlayingRouteTest {
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
+    }
+
+    @Test
+    fun theSleepTimerIsSetFromTheContextMenu() {
+        setUpState()
+        seedAlbum(1)
+        controller.playAlbum(1, "al1", 0)
+        awaitUntil("waiting for the first track") {
+            controller.state.value.item
+                ?.id == "s1"
+        }
+        var now = 1_000_000L
+        val sleepTimer = SleepTimer { now }
+        val menuHost = ContextMenuHost()
+
+        composeRule.setContent {
+            SubtracksTheme {
+                NowPlayingRoute(
+                    onBack = {},
+                    onQueue = {},
+                    onViewAlbum = {},
+                    onViewArtist = {},
+                    setStar = { _, _, _ -> },
+                    contextMenuHost = menuHost,
+                    controller = controller,
+                    libraryRepository = library,
+                    downloadRepository = downloads,
+                    userPreferences = prefs,
+                    sleepTimer = sleepTimer,
+                )
+                menuHost.target?.let { target ->
+                    ItemContextMenu(target = target, actions = menuHost.actions, onDismiss = { menuHost.dismiss() })
+                }
+            }
+        }
+
+        fun openSleepTimerSheet() {
+            composeRule.waitUntil(TEST_TIMEOUT_MS) {
+                if (menuHost.target == null) composeRule.onNodeWithContentDescription("More").performClick()
+                menuHost.target != null
+            }
+            composeRule.onNodeWithText("Sleep timer").performClick()
+            composeRule.onNodeWithTag(SLEEP_TIMER_SHEET_TAG).assertExists()
+        }
+
+        openSleepTimerSheet()
+        composeRule.onNodeWithText("Turn off timer").assertDoesNotExist()
+        composeRule.onNodeWithText("30 minutes").assertExists()
+        composeRule.onNodeWithTag(SLEEP_TIMER_SLIDER_TAG).performSemanticsAction(SemanticsActions.SetProgress) { it(45f) }
+        composeRule.onNodeWithText("45 minutes").assertExists()
+        composeRule.onNodeWithText("Start").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SleepTimerState.Countdown(now + 45 * 60_000L), sleepTimer.state.value)
+        composeRule.onNodeWithTag(SLEEP_TIMER_SHEET_TAG).assertDoesNotExist()
+        assertEquals(45, runBlocking { prefs.sleepTimerMinutes().first() })
+
+        composeRule.waitUntil(TEST_TIMEOUT_MS) {
+            if (menuHost.target == null) composeRule.onNodeWithContentDescription("More").performClick()
+            menuHost.target != null
+        }
+        composeRule.onNodeWithText("45:00", useUnmergedTree = true).assertExists()
+        now += 1_000L
+        composeRule.mainClock.advanceTimeBy(1_000L)
+        composeRule.onNodeWithText("44:59", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("Sleep timer").performClick()
+        composeRule.onNodeWithText("45 minutes").assertExists()
+        composeRule.onNodeWithText("End of track").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SleepTimerState.EndOfTrack, sleepTimer.state.value)
+
+        openSleepTimerSheet()
+        composeRule.onNodeWithText("Turn off timer").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SleepTimerState.Off, sleepTimer.state.value)
     }
 }
