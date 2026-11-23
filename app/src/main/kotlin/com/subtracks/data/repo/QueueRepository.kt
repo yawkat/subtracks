@@ -5,16 +5,23 @@ import androidx.room3.immediateTransaction
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
 import com.subtracks.data.db.LibrarySongsQuery
+import com.subtracks.data.db.SortedPlaylistQuery
 import com.subtracks.data.db.SubtracksDatabase
 import com.subtracks.data.db.librarySongRankQuery
 import com.subtracks.data.db.librarySongsCountQuery
 import com.subtracks.data.db.librarySongsSliceQuery
+import com.subtracks.data.db.playlistIdOf
+import com.subtracks.data.db.sortedPlaylistRankAtPositionQuery
+import com.subtracks.data.db.sortedPlaylistRankQuery
+import com.subtracks.data.db.sortedPlaylistSliceQuery
 import com.subtracks.data.model.PlaybackCursor
 import com.subtracks.data.model.QueueEntry
 import com.subtracks.data.model.QueueKind
 import com.subtracks.data.model.QueueOrigin
 import com.subtracks.data.model.SongItem
 import com.subtracks.data.model.UpNextEntry
+import com.subtracks.data.model.isPlaylist
+import com.subtracks.data.prefs.PlaylistSongSort
 import com.subtracks.log.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -35,6 +42,8 @@ const val QUEUE_CHUNK = 60
 private const val LENGTH_CACHE_LIMIT = 512
 
 private val LIBRARY_DEPENDENCIES = setOf(QueueKind.Song, QueueKind.Album, QueueKind.Starred, QueueKind.Downloaded)
+
+private val SORTED_PLAYLIST_DEPENDENCIES = setOf(QueueKind.Song, QueueKind.Album)
 
 private data class EntryLengthKey(
     val version: Long,
@@ -449,6 +458,28 @@ private val queueKindResolvers =
                     songId: String,
                 ) = dao.libraryRank(librarySongRankQuery(entry.sourceId, LibrarySongsQuery.decode(entry.refId), songId))
             },
+        QueueKind.SortedPlaylist to
+            object : QueueKindResolver {
+                override suspend fun length(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                ) = dao.playlistLength(entry.sourceId, SortedPlaylistQuery.decode(entry.refId).playlistId)
+
+                override suspend fun rows(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                    offset: Long,
+                    limit: Int,
+                ) = dao.sortedPlaylistSongs(
+                    sortedPlaylistSliceQuery(entry.sourceId, SortedPlaylistQuery.decode(entry.refId), offset, limit),
+                )
+
+                override suspend fun rank(
+                    dao: com.subtracks.data.db.QueueDao,
+                    entry: QueueEntry,
+                    songId: String,
+                ) = dao.sortedPlaylistRank(sortedPlaylistRankQuery(entry.sourceId, SortedPlaylistQuery.decode(entry.refId), songId))
+            },
     )
 
 private fun resolverFor(kind: QueueKind): QueueKindResolver = queueKindResolvers.getValue(kind)
@@ -529,6 +560,16 @@ class QueueRepository(
         query: LibrarySongsQuery,
     ) = QueueEntry(position = 0, sourceId = sourceId, kind = QueueKind.Library, refId = query.encode())
 
+    /** A playlist entry in [query]'s order; the playlist's own order gets a plain [playlistEntry]. */
+    fun sortedPlaylistEntry(
+        sourceId: Long,
+        query: SortedPlaylistQuery,
+    ) = if (query.order.isCustom) {
+        playlistEntry(sourceId, query.playlistId)
+    } else {
+        QueueEntry(position = 0, sourceId = sourceId, kind = QueueKind.SortedPlaylist, refId = query.encode())
+    }
+
     suspend fun sourceName(
         kind: QueueKind,
         sourceId: Long,
@@ -544,9 +585,9 @@ class QueueRepository(
                     ?.takeIf { it.isNotBlank() }
             }
 
-            QueueKind.Playlist -> {
+            QueueKind.Playlist, QueueKind.SortedPlaylist -> {
                 library
-                    .playlist(sourceId, refId)
+                    .playlist(sourceId, playlistIdOf(kind, refId))
                     .first()
                     ?.name
                     ?.takeIf { it.isNotBlank() }
@@ -694,7 +735,7 @@ class QueueRepository(
     ) {
         if (changed.isNotEmpty()) {
             val before = snapshot()
-            val affected = changed + libraryOriginsAffectedBy(changed, before)
+            val affected = changed + libraryOriginsAffectedBy(changed, before) + sortedPlaylistOriginsAffectedBy(changed, before)
             val entries = canonicalEntries(before.entries.map { it.entry }, affected)
             val upNext = canonicalEntries(before.upNext.map { it.entry }, affected)
             val matchingOrigin =
@@ -718,6 +759,24 @@ class QueueRepository(
         return (snapshot.entries + snapshot.upNext)
             .map { it.entry.origin }
             .filterTo(mutableSetOf()) { it.kind == QueueKind.Library && it.sourceId in sources }
+    }
+
+    // A sorted playlist follows its playlist, and unless it is merely reversed, the song and album
+    // names it sorts by.
+    private fun sortedPlaylistOriginsAffectedBy(
+        changed: Set<QueueOrigin>,
+        snapshot: QueueSnapshot,
+    ): Set<QueueOrigin> {
+        val playlists = changed.filterTo(mutableSetOf()) { it.kind == QueueKind.Playlist }
+        val sources = changed.filter { it.kind in SORTED_PLAYLIST_DEPENDENCIES }.mapTo(mutableSetOf()) { it.sourceId }
+        return (snapshot.entries + snapshot.upNext)
+            .map { it.entry.origin }
+            .filterTo(mutableSetOf()) { origin ->
+                if (origin.kind != QueueKind.SortedPlaylist) return@filterTo false
+                val query = SortedPlaylistQuery.decode(origin.refId)
+                QueueOrigin(QueueKind.Playlist, origin.sourceId, query.playlistId) in playlists ||
+                    (query.order.sort != PlaylistSongSort.Custom && origin.sourceId in sources)
+            }
     }
 
     private suspend fun clearPendingSyncOriginsLocked(sourceId: Long) =
@@ -868,8 +927,9 @@ class QueueRepository(
         val resolvedSongId = songId ?: resolvedItem?.song?.id ?: return null
         val occurrence =
             entry.originOccurrence
-                ?: if (entry.kind == QueueKind.Playlist && resolvedItem?.playlistPosition != null) {
-                    dao.playlistOccurrenceRank(entry.sourceId, entry.refId, resolvedSongId, resolvedItem.playlistPosition!!)
+                ?: if (entry.kind.isPlaylist && resolvedItem?.playlistPosition != null) {
+                    val playlistId = playlistIdOf(entry.kind, entry.refId)
+                    dao.playlistOccurrenceRank(entry.sourceId, playlistId, resolvedSongId, resolvedItem.playlistPosition!!)
                 } else {
                     0L
                 }
@@ -1008,6 +1068,10 @@ class QueueRepository(
                 if (entry.kind == QueueKind.Playlist) {
                     val position = dao.playlistPositionForOccurrence(entry.sourceId, entry.refId, item.songId, item.occurrence)
                     position?.let { dao.playlistRankAtPosition(entry.sourceId, entry.refId, it) }
+                } else if (entry.kind == QueueKind.SortedPlaylist) {
+                    val query = SortedPlaylistQuery.decode(entry.refId)
+                    val position = dao.playlistPositionForOccurrence(entry.sourceId, query.playlistId, item.songId, item.occurrence)
+                    position?.let { dao.sortedPlaylistRank(sortedPlaylistRankAtPositionQuery(entry.sourceId, query, it)) }
                 } else {
                     resolverFor(entry.kind).rank(dao, entry, item.songId)
                 }
@@ -1487,6 +1551,7 @@ class QueueRepository(
             QueueKind.Downloaded -> OrderKey(row.song.id)
             QueueKind.Starred -> OrderKey(row.song.id)
             QueueKind.Library -> OrderKey(row.song.id)
+            QueueKind.SortedPlaylist -> OrderKey(row.song.id, position = row.playlistPosition)
             QueueKind.Song -> OrderKey(row.song.id)
         }
 

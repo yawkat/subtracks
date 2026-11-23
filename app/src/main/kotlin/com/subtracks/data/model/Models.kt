@@ -446,7 +446,9 @@ data class DiscKey(
     val disc: Long,
 )
 
-enum class QueueKind { Playlist, Album, Song, Artist, Genre, Downloaded, Starred, Library }
+enum class QueueKind { Playlist, Album, Song, Artist, Genre, Downloaded, Starred, Library, SortedPlaylist }
+
+val QueueKind.isPlaylist: Boolean get() = this == QueueKind.Playlist || this == QueueKind.SortedPlaylist
 
 data class QueueOrigin(
     val kind: QueueKind,

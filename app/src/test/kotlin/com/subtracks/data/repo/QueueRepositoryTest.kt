@@ -4,8 +4,10 @@ import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.subtracks.data.db.LibrarySongsQuery
+import com.subtracks.data.db.SortedPlaylistQuery
 import com.subtracks.data.db.SubtracksDatabase
 import com.subtracks.data.db.createTestDatabase
+import com.subtracks.data.db.sortedPlaylistRankAtPositionQuery
 import com.subtracks.data.model.Album
 import com.subtracks.data.model.DownloadStatus
 import com.subtracks.data.model.Playlist
@@ -17,6 +19,8 @@ import com.subtracks.data.model.Song
 import com.subtracks.data.model.SongDownload
 import com.subtracks.data.model.Source
 import com.subtracks.data.model.UpNextEntry
+import com.subtracks.data.prefs.PlaylistSongOrder
+import com.subtracks.data.prefs.PlaylistSongSort
 import com.subtracks.data.prefs.SongSort
 import com.subtracks.data.prefs.StarredFilter
 import kotlinx.coroutines.CoroutineStart
@@ -142,6 +146,107 @@ class QueueRepositoryTest {
             val version = repository.contentVersion()
 
             repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Song, 2, "s4")), point)
+
+            assertEquals(version, repository.contentVersion())
+        }
+
+    @Test
+    fun sortedPlaylistEntryResolvesThePlaylistInItsOrder() =
+        runTest {
+            seedLibrary()
+            db.libraryDao().upsertSongs(
+                listOf(
+                    song("s5", "al2", track = 2, album = "Second Album", title = "A song"),
+                    song("s3", "al1", track = 3, album = "First Album").copy(artist = "Aardvark", artistSort = "Aardvark"),
+                ),
+            )
+            setPlaylist("p1", "s3", "s1", "s5", "s1")
+
+            suspend fun resolve(
+                sort: PlaylistSongSort,
+                descending: Boolean = false,
+            ) = resolveAll(
+                repository.snapshotAfter(
+                    listOf(repository.sortedPlaylistEntry(1, SortedPlaylistQuery("p1", PlaylistSongOrder(sort, descending)))),
+                ),
+            )
+
+            assertEquals(listOf("s3", "s1", "s5", "s1"), resolve(PlaylistSongSort.Custom))
+            assertEquals(listOf("s3", "s1", "s1", "s5"), resolve(PlaylistSongSort.Artist))
+            assertEquals(listOf("s1", "s5", "s1", "s3"), resolve(PlaylistSongSort.Custom, descending = true))
+            assertEquals(listOf("s5", "s1", "s1", "s3"), resolve(PlaylistSongSort.Name))
+            assertEquals(listOf("s3", "s1", "s1", "s5"), resolve(PlaylistSongSort.Name, descending = true))
+            assertEquals(listOf("s1", "s1", "s3", "s5"), resolve(PlaylistSongSort.Album))
+            assertEquals(listOf("s5", "s3", "s1", "s1"), resolve(PlaylistSongSort.Album, descending = true))
+        }
+
+    @Test
+    fun aSortedPlaylistOrdinalCountsEachOccurrenceByItsPosition() =
+        runTest {
+            seedLibrary()
+            setPlaylist("p1", "s3", "s1", "s2", "s1")
+            val query = SortedPlaylistQuery("p1", PlaylistSongOrder(PlaylistSongSort.Name, descending = true))
+
+            suspend fun ordinal(position: Long) = db.queueDao().sortedPlaylistRank(sortedPlaylistRankAtPositionQuery(1, query, position))
+
+            assertEquals(listOf(0L, 3L, 1L, 2L), (0L..3L).map { ordinal(it) })
+        }
+
+    @Test
+    fun aPlaylistChangeResetsItsSortedEntryAndKeepsTheCurrentOccurrence() =
+        runTest {
+            seedLibrary()
+            setPlaylist("p1", "s1", "s2", "s1")
+            val query = SortedPlaylistQuery("p1", PlaylistSongOrder(PlaylistSongSort.Name, descending = true))
+            val snapshot = repository.snapshotAfter(listOf(repository.sortedPlaylistEntry(1, query)))
+            assertEquals(listOf("s2", "s1", "s1"), resolveAll(snapshot))
+            repository.setCursor(2)
+            val point = repository.captureResetPoint()
+
+            setPlaylist("p1", "s1", "s2", "s1", "s3")
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Playlist, 1, "p1")), point)
+
+            assertEquals(listOf("s3", "s2", "s1", "s1"), resolveAll(repository.snapshot()))
+            assertEquals(3L, repository.cursor())
+        }
+
+    @Test
+    fun aSongChangeResetsANameSortedPlaylistButNotAReversedOne() =
+        runTest {
+            seedLibrary()
+            setPlaylist("p1", "s1", "s2")
+            setPlaylist("p2", "s1", "s2")
+            val byName = SortedPlaylistQuery("p1", PlaylistSongOrder(PlaylistSongSort.Name))
+            val reversed = SortedPlaylistQuery("p2", PlaylistSongOrder(PlaylistSongSort.Custom, descending = true))
+            repository.snapshotAfter(listOf(repository.sortedPlaylistEntry(1, reversed)))
+            var point = repository.captureResetPoint()
+            val version = repository.contentVersion()
+
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Song, 1, "s1")), point)
+            assertEquals(version, repository.contentVersion())
+
+            repository.snapshotAfter(listOf(repository.sortedPlaylistEntry(1, byName)))
+            point = repository.captureResetPoint()
+            val sortedVersion = repository.contentVersion()
+            db.libraryDao().upsertSongs(listOf(song("s2", "al1", track = 2, album = "First Album", title = "A song")))
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Song, 1, "s2")), point)
+
+            assertTrue(repository.contentVersion() != sortedVersion)
+            assertEquals(listOf("s2", "s1"), resolveAll(repository.snapshot()))
+        }
+
+    @Test
+    fun aChangeToAnotherPlaylistLeavesASortedPlaylistAlone() =
+        runTest {
+            seedLibrary()
+            setPlaylist("p1", "s1", "s2")
+            repository.snapshotAfter(
+                listOf(repository.sortedPlaylistEntry(1, SortedPlaylistQuery("p1", PlaylistSongOrder(PlaylistSongSort.Name)))),
+            )
+            val point = repository.captureResetPoint()
+            val version = repository.contentVersion()
+
+            repository.resetChangedOrigins(setOf(QueueOrigin(QueueKind.Playlist, 1, "p2")), point)
 
             assertEquals(version, repository.contentVersion())
         }
@@ -1584,6 +1689,9 @@ class QueueRepositoryTest {
     fun libraryRankLookupDoesNotResolveSongRows() = runTest { assertRankLookupDoesNotResolveSongRows(QueueKind.Library) }
 
     @Test
+    fun sortedPlaylistRankLookupDoesNotResolveSongRows() = runTest { assertRankLookupDoesNotResolveSongRows(QueueKind.SortedPlaylist) }
+
+    @Test
     fun upNextCombinedIndexOfCountsFromTheAnchorIntoTheBlock() =
         runTest {
             seedLibrary()
@@ -1769,12 +1877,34 @@ class QueueRepositoryTest {
         }
         val entry =
             when (kind) {
-                QueueKind.Artist -> repository.artistEntry(1, "ar1")
-                QueueKind.Genre -> repository.genreEntry(1, "Rock")
-                QueueKind.Downloaded -> repository.downloadedEntry(1)
-                QueueKind.Starred -> repository.starredEntry(1)
-                QueueKind.Library -> repository.libraryEntry(1, LibrarySongsQuery())
-                else -> error("Unsupported kind $kind")
+                QueueKind.Artist -> {
+                    repository.artistEntry(1, "ar1")
+                }
+
+                QueueKind.Genre -> {
+                    repository.genreEntry(1, "Rock")
+                }
+
+                QueueKind.Downloaded -> {
+                    repository.downloadedEntry(1)
+                }
+
+                QueueKind.Starred -> {
+                    repository.starredEntry(1)
+                }
+
+                QueueKind.Library -> {
+                    repository.libraryEntry(1, LibrarySongsQuery())
+                }
+
+                QueueKind.SortedPlaylist -> {
+                    setPlaylist("p1", *(62 downTo 1).map { "s" + it.toString().padStart(2, '0') }.toTypedArray())
+                    repository.sortedPlaylistEntry(1, SortedPlaylistQuery("p1", PlaylistSongOrder(PlaylistSongSort.Name)))
+                }
+
+                else -> {
+                    error("Unsupported kind $kind")
+                }
             }
         val snapshot = repository.snapshotAfter(listOf(entry))
         val resolvedBefore = repository.resolvedRowCount

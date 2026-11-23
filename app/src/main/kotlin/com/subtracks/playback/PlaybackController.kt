@@ -2,12 +2,15 @@ package com.subtracks.playback
 
 import com.subtracks.UiMessage
 import com.subtracks.data.db.LibrarySongsQuery
+import com.subtracks.data.db.SortedPlaylistQuery
+import com.subtracks.data.db.playlistIdOf
 import com.subtracks.data.model.ArtistRef
 import com.subtracks.data.model.AudioEncoding
 import com.subtracks.data.model.CoverArtRef
 import com.subtracks.data.model.QueueEntry
 import com.subtracks.data.model.QueueKind
 import com.subtracks.data.model.QueueOrigin
+import com.subtracks.data.model.isPlaylist
 import com.subtracks.data.prefs.SongTapBehavior
 import com.subtracks.data.prefs.UserPreferences
 import com.subtracks.data.repo.DownloadRepository
@@ -289,6 +292,17 @@ class PlaybackController(
         startOrdinal: Long,
     ) = play(queueRepository.libraryEntry(sourceId, query), startOrdinal)
 
+    fun playSortedPlaylist(
+        sourceId: Long,
+        query: SortedPlaylistQuery,
+        startOrdinal: Long,
+    ) = play(queueRepository.sortedPlaylistEntry(sourceId, query), startOrdinal)
+
+    fun playSortedPlaylistInOrder(
+        sourceId: Long,
+        query: SortedPlaylistQuery,
+    ) = play(queueRepository.sortedPlaylistEntry(sourceId, query), 0, SongTapBehavior.InOrder)
+
     fun playAlbumInOrder(
         sourceId: Long,
         albumId: String,
@@ -332,6 +346,16 @@ class PlaybackController(
         scope.launch { startShuffled(entry) }
     }
 
+    private fun sameList(
+        a: QueueEntry,
+        b: QueueEntry,
+    ): Boolean =
+        if (a.kind.isPlaylist && b.kind.isPlaylist) {
+            playlistIdOf(a.kind, a.refId) == playlistIdOf(b.kind, b.refId)
+        } else {
+            a.kind == b.kind && a.refId == b.refId
+        }
+
     private suspend fun startShuffled(entry: QueueEntry) {
         downloads.awaitLoaded()
         queueRepository.withMutationLock {
@@ -342,7 +366,7 @@ class PlaybackController(
             endedHandled = false
             val previous = snapshot
             val previousEntry = previous?.entries?.firstOrNull()?.entry
-            val same = previousEntry != null && previousEntry.kind == entry.kind && previousEntry.refId == entry.refId
+            val same = previousEntry != null && sameList(previousEntry, entry)
             val avoid = if (same) currentQueuePosition()?.let { previous.flatContext(previous.anchorContextPlay(it)) } else null
             replace(listOf(entry))
             var snap = snapshot()

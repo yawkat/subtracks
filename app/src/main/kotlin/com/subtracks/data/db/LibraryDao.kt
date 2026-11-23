@@ -682,6 +682,12 @@ interface LibraryDao {
     @RawQuery(observedEntities = [Song::class, Album::class, SongDownload::class])
     fun downloadedLibrarySongsPaging(query: RoomRawQuery): PagingSource<Int, AlbumSongItem>
 
+    @RawQuery(observedEntities = [PlaylistSong::class, Song::class, Album::class])
+    fun sortedPlaylistSongsPaging(query: RoomRawQuery): PagingSource<Int, PlaylistSongItem>
+
+    @RawQuery(observedEntities = [PlaylistSong::class, Song::class, Album::class, SongDownload::class])
+    fun downloadedSortedPlaylistSongsPaging(query: RoomRawQuery): PagingSource<Int, PlaylistSongItem>
+
     @Query("SELECT * FROM albums WHERE sourceId = :sourceId AND played IS NOT NULL ORDER BY played DESC, sortName COLLATE NOCASE, id")
     fun homeRecentlyPlayedAlbums(sourceId: Long): PagingSource<Int, Album>
 

@@ -12,6 +12,8 @@ import com.subtracks.data.model.Playlist
 import com.subtracks.data.model.PlaylistSongItem
 import com.subtracks.data.model.Song
 import com.subtracks.data.model.SongDownload
+import com.subtracks.data.prefs.PlaylistSongOrder
+import com.subtracks.data.prefs.UserPreferences
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
 import com.subtracks.data.repo.PlaylistRepository
@@ -36,6 +38,7 @@ class PlaylistDetailViewModel(
     private val playbackController: PlaybackController,
     private val downloadRepository: DownloadRepository,
     private val playlistRepository: PlaylistRepository,
+    private val userPreferences: UserPreferences,
     private val playlistId: String,
 ) : ViewModel() {
     private val sourceId = libraryRepository.activeSourceId.filterNotNull()
@@ -45,10 +48,22 @@ class PlaylistDetailViewModel(
             .flatMapLatest { libraryRepository.playlist(it, playlistId) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** The saved song order, or null until it has loaded. */
+    val songOrder: StateFlow<PlaylistSongOrder?> =
+        userPreferences.playlistSongOrder().stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val songs: Flow<PagingData<PlaylistSongItem>> =
-        combine(sourceId, sourceRepository.offline) { id, offline -> id to offline }
-            .flatMapLatest { (id, offline) -> libraryRepository.playlistSongs(id, playlistId, offline) }
+        combine(
+            sourceId,
+            sourceRepository.offline,
+            userPreferences.playlistSongOrder(),
+        ) { id, offline, order -> Triple(id, offline, order) }
+            .flatMapLatest { (id, offline, order) -> libraryRepository.playlistSongs(id, playlistId, order, offline) }
             .cachedIn(viewModelScope)
+
+    fun setSongOrder(order: PlaylistSongOrder) {
+        viewModelScope.launch { userPreferences.setPlaylistSongOrder(order) }
+    }
 
     val downloads: StateFlow<Map<String, SongDownload>> =
         downloadRepository.states()
@@ -105,13 +120,22 @@ class PlaylistDetailViewModel(
 
     fun play(position: Long) {
         viewModelScope.launch {
-            playbackController.playPlaylist(sourceId.first(), playlistId, position)
+            val sourceId = sourceId.first()
+            val order = userPreferences.playlistSongOrder().first()
+            if (order.isCustom) {
+                playbackController.playPlaylist(sourceId, playlistId, position)
+            } else {
+                val query = libraryRepository.sortedPlaylistQuery(playlistId, order)
+                val ordinal = libraryRepository.sortedPlaylistOrdinal(sourceId, query, position) ?: return@launch
+                playbackController.playSortedPlaylist(sourceId, query, ordinal)
+            }
         }
     }
 
     fun playAll() {
         viewModelScope.launch {
-            playbackController.playPlaylistInOrder(sourceId.first(), playlistId)
+            val order = userPreferences.playlistSongOrder().first()
+            playbackController.playSortedPlaylistInOrder(sourceId.first(), libraryRepository.sortedPlaylistQuery(playlistId, order))
         }
     }
 

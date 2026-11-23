@@ -2,8 +2,11 @@ package com.subtracks.data.db
 
 import androidx.room3.RoomRawQuery
 import androidx.sqlite.SQLiteStatement
+import com.subtracks.data.model.QueueKind
 import com.subtracks.data.prefs.AlbumSort
 import com.subtracks.data.prefs.ArtistSort
+import com.subtracks.data.prefs.PlaylistSongOrder
+import com.subtracks.data.prefs.PlaylistSongSort
 import com.subtracks.data.prefs.PlaylistSort
 import com.subtracks.data.prefs.SongSort
 import com.subtracks.data.prefs.SortNameMode
@@ -336,6 +339,122 @@ private fun LibrarySongsQuery.order(): String {
     return terms.joinToString(", ") { (term, termDescending) ->
         if (termDescending != descending) "$term DESC" else term
     }
+}
+
+/**
+ * A playlist's songs in an order other than the playlist's own. It doubles as the reference of a
+ * [QueueKind.SortedPlaylist] queue entry, so the queue plays the playlist
+ * in the order it was shown when a song was tapped.
+ */
+data class SortedPlaylistQuery(
+    val playlistId: String,
+    val order: PlaylistSongOrder = PlaylistSongOrder(),
+    val sortNameMode: SortNameMode = SortNameMode.SortName,
+) {
+    fun encode(): String =
+        listOf(
+            order.sort.name,
+            if (order.descending) "1" else "0",
+            sortNameMode.name,
+            playlistId,
+        ).joinToString("|")
+
+    companion object {
+        fun decode(refId: String): SortedPlaylistQuery {
+            val parts = refId.split("|", limit = 4)
+            return SortedPlaylistQuery(
+                playlistId = parts.getOrNull(3).orEmpty(),
+                order =
+                    PlaylistSongOrder(
+                        sort = PlaylistSongSort.entries.firstOrNull { it.name == parts.getOrNull(0) } ?: PlaylistSongSort.Custom,
+                        descending = parts.getOrNull(1) == "1",
+                    ),
+                sortNameMode = SortNameMode.entries.firstOrNull { it.name == parts.getOrNull(2) } ?: SortNameMode.SortName,
+            )
+        }
+    }
+}
+
+/** The playlist a [QueueKind.Playlist] or [QueueKind.SortedPlaylist] reference plays. */
+fun playlistIdOf(
+    kind: QueueKind,
+    refId: String,
+): String = if (kind == QueueKind.SortedPlaylist) SortedPlaylistQuery.decode(refId).playlistId else refId
+
+private const val SORTED_PLAYLIST_FROM = """
+FROM playlist_songs
+JOIN songs ON songs.sourceId = playlist_songs.sourceId AND songs.id = playlist_songs.songId
+LEFT JOIN albums ON albums.sourceId = songs.sourceId AND albums.id = songs.albumId
+WHERE playlist_songs.sourceId = :sourceId AND playlist_songs.playlistId = :playlistId
+"""
+
+private const val SORTED_PLAYLIST_COLUMNS = "songs.*, albums.coverArt AS coverArt, playlist_songs.position AS position"
+
+private fun SortedPlaylistQuery.from(downloaded: Boolean): String =
+    if (downloaded) "$SORTED_PLAYLIST_FROM AND $DOWNLOADED_SONG" else SORTED_PLAYLIST_FROM
+
+private fun SortedPlaylistQuery.bindings(sourceId: Long): Map<String, Any?> = mapOf("sourceId" to sourceId, "playlistId" to playlistId)
+
+/** A playlist's songs in [query]'s order, optionally only the downloaded ones. */
+internal fun sortedPlaylistPageQuery(
+    sourceId: Long,
+    query: SortedPlaylistQuery,
+    downloaded: Boolean,
+): RoomRawQuery =
+    rawQuery(
+        sql = "SELECT $SORTED_PLAYLIST_COLUMNS ${query.from(downloaded)} ORDER BY ${query.order()}",
+        bindings = query.bindings(sourceId),
+    )
+
+internal fun sortedPlaylistSliceQuery(
+    sourceId: Long,
+    query: SortedPlaylistQuery,
+    offset: Long,
+    limit: Int,
+): RoomRawQuery =
+    rawQuery(
+        sql = "SELECT $SORTED_PLAYLIST_COLUMNS ${query.from(false)} ORDER BY ${query.order()} LIMIT :limit OFFSET :offset",
+        bindings = query.bindings(sourceId) + mapOf("limit" to limit, "offset" to offset),
+    )
+
+private fun SortedPlaylistQuery.rankSql(filter: String): String =
+    "SELECT MIN(songRank) FROM (SELECT playlist_songs.songId AS rankedId, playlist_songs.position AS rankedPosition, " +
+        "ROW_NUMBER() OVER (ORDER BY ${order()}) - 1 AS songRank ${from(false)}) WHERE $filter"
+
+/** The rank of [songId]'s first appearance in [query]'s order. */
+internal fun sortedPlaylistRankQuery(
+    sourceId: Long,
+    query: SortedPlaylistQuery,
+    songId: String,
+): RoomRawQuery =
+    rawQuery(
+        sql = query.rankSql("rankedId = :songId"),
+        bindings = query.bindings(sourceId) + mapOf("songId" to songId),
+    )
+
+/** The rank in [query]'s order of the song at playlist [position]. */
+internal fun sortedPlaylistRankAtPositionQuery(
+    sourceId: Long,
+    query: SortedPlaylistQuery,
+    position: Long,
+): RoomRawQuery =
+    rawQuery(
+        sql = query.rankSql("rankedPosition = :position"),
+        bindings = query.bindings(sourceId) + mapOf("position" to position),
+    )
+
+// Every order ends on the playlist position, so a song the playlist holds twice keeps its two
+// entries apart and in a stable order.
+private fun SortedPlaylistQuery.order(): String {
+    val album = listOf(songAlbumKey(sortNameMode), "songs.albumId", "songs.disc", "songs.track")
+    val terms =
+        when (order.sort) {
+            PlaylistSongSort.Custom -> emptyList()
+            PlaylistSongSort.Name -> listOf(songNameKey(sortNameMode))
+            PlaylistSongSort.Artist -> listOf(songArtistKey(sortNameMode)) + album
+            PlaylistSongSort.Album -> album
+        } + "playlist_songs.position"
+    return terms.joinToString(", ") { if (order.descending) "$it DESC" else it }
 }
 
 // RoomRawQuery takes a positional bind function, but SQLite gives a repeated named parameter one

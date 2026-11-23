@@ -775,7 +775,7 @@ fun NowPlayingScreen(
 private fun QueueKind.label(): Int =
     when (this) {
         QueueKind.Album -> R.string.context_kind_album
-        QueueKind.Playlist -> R.string.context_kind_playlist
+        QueueKind.Playlist, QueueKind.SortedPlaylist -> R.string.context_kind_playlist
         QueueKind.Song -> R.string.context_kind_song
         QueueKind.Artist -> R.string.context_kind_artist
         QueueKind.Genre -> R.string.context_kind_genre

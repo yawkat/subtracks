@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.subtracks.data.net.NetworkMode
 import com.subtracks.data.source.DEFAULT_FETCH_CONCURRENCY
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -26,6 +27,16 @@ enum class PlaylistSort { Name, Added, Updated }
 
 // No play-count sorts: playing a song would reorder the very list its queue plays from.
 enum class SongSort { Name, Artist, Album, Added, Starred }
+
+/** The order of a playlist's songs: [Custom] is the playlist's own order. */
+enum class PlaylistSongSort { Custom, Name, Artist, Album }
+
+data class PlaylistSongOrder(
+    val sort: PlaylistSongSort = PlaylistSongSort.Custom,
+    val descending: Boolean = false,
+) {
+    val isCustom: Boolean get() = sort == PlaylistSongSort.Custom && !descending
+}
 
 enum class LibraryListTab(
     val key: String,
@@ -275,6 +286,26 @@ class UserPreferences(
     }
 
     private val libraryTabKey = stringPreferencesKey("library_tab")
+
+    fun playlistSongOrder(): Flow<PlaylistSongOrder> =
+        store.data
+            .map { prefs ->
+                PlaylistSongOrder(
+                    sort = PlaylistSongSort.entries.firstOrNull { it.name == prefs[playlistSongSortKey] } ?: PlaylistSongSort.Custom,
+                    descending = prefs[playlistSongDescendingKey] ?: false,
+                )
+            }.distinctUntilChanged()
+
+    suspend fun setPlaylistSongOrder(order: PlaylistSongOrder) {
+        store.edit { prefs ->
+            prefs[playlistSongSortKey] = order.sort.name
+            prefs[playlistSongDescendingKey] = order.descending
+        }
+    }
+
+    private val playlistSongSortKey = stringPreferencesKey("playlist_song_sort")
+
+    private val playlistSongDescendingKey = booleanPreferencesKey("playlist_song_descending")
 
     private fun encode(query: ListQuery) =
         "${query.sort}|${if (query.descending) 1 else 0}|${query.starred.ordinal}|${if (query.downloaded) 1 else 0}"

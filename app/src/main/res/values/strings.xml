@@ -180,6 +180,7 @@
     <string name="sort_by">Sort by</string>
     <string name="sort_ascending">Sort ascending</string>
     <string name="sort_descending">Sort descending</string>
+    <string name="sort_playlist_order">Playlist order</string>
     <string name="filters">Filters</string>
     <string name="filter_downloaded">Downloaded</string>
     <string name="close_search">Close search</string>
