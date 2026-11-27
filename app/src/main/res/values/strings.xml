@@ -104,6 +104,8 @@
     <string name="settings_replay_gain_title">ReplayGain</string>
     <string name="settings_music_options_keep_screen_on_description">Keep the screen on while now playing is open</string>
     <string name="settings_music_options_keep_screen_on_title">Keep screen on</string>
+    <string name="settings_music_options_starred_as_playlist_description">The star button in now playing opens the playlist list, where starring is one of the options</string>
+    <string name="settings_music_options_starred_as_playlist_title">Treat starred as a playlist</string>
     <string name="settings_sort_names_title">Sort names</string>
     <string name="settings_sort_names_prompt">Choose how names are ordered in album and artist lists.</string>
     <string name="sort_name_mode_sort_name">Use sort names</string>
@@ -320,6 +322,10 @@
     <string name="playback_error">Playback error: %1$s</string>
     <string name="star_update_failed">Could not update star</string>
     <string name="add_to_playlist">Add to playlist</string>
+    <string name="playlist_button_listed">In a playlist</string>
+    <string name="playlist_button_starred">Starred</string>
+    <string name="playlist_button_starred_and_listed">Starred and in a playlist</string>
+    <string name="playlist_checklist_starred">Starred</string>
     <string name="remove_from_playlist">Remove from playlist</string>
     <string name="new_playlist">New playlist</string>
     <string name="playlist_name">Name</string>

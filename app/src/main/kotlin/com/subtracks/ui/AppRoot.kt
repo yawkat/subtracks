@@ -63,10 +63,12 @@ import androidx.navigation.navArgument
 import com.subtracks.R
 import com.subtracks.data.model.ArtistRef
 import com.subtracks.data.model.Song
+import com.subtracks.data.prefs.UserPreferences
 import com.subtracks.data.repo.DownloadRepository
 import com.subtracks.data.repo.LibraryRepository
 import com.subtracks.data.repo.PlaylistRepository
 import com.subtracks.data.repo.SourceRepository
+import com.subtracks.data.source.StarType
 import com.subtracks.playback.PlaybackController
 import com.subtracks.ui.components.AlbumInfoDialog
 import com.subtracks.ui.components.ArtistChooserSheet
@@ -230,6 +232,9 @@ private fun MainNavigation() {
     val downloadRepository = koinInject<DownloadRepository>()
     val playlistRepository = koinInject<PlaylistRepository>()
     val offline by koinInject<SourceRepository>().offline.collectAsStateWithLifecycle()
+    val userPreferences = koinInject<UserPreferences>()
+    val starredAsPlaylist by remember(userPreferences) { userPreferences.starredAsPlaylist() }
+        .collectAsStateWithLifecycle(initialValue = false)
     val playback by playbackController.state.collectAsStateWithLifecycle()
     val downloads by downloadRepository.states().collectAsStateWithLifecycle()
     var showingQueue by rememberSaveable { mutableStateOf(false) }
@@ -746,6 +751,8 @@ private fun MainNavigation() {
                         },
                         contextMenuHost = contextMenuHost,
                         setStar = libraryRepository::star,
+                        onEditPlaylists = if (starredAsPlaylist) { target -> playlistTarget = target } else null,
+                        playlistsHolding = playlistRepository::editablePlaylistsHolding,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -800,12 +807,18 @@ private fun MainNavigation() {
                 val holding by
                     remember(song.sourceId, song.id) { playlistRepository.playlistsHolding(song.sourceId, song.id) }
                         .collectAsStateWithLifecycle(initialValue = null)
+                val starred by
+                    remember(song.sourceId, song.id) { libraryRepository.song(song.sourceId, song.id) }
+                        .collectAsStateWithLifecycle(initialValue = song)
                 PlaylistChecklistSheet(
                     title = target.title,
                     playlists = playlists,
                     holding = holding,
                     onSave = { changes -> playlistRepository.launchApply(song.sourceId, song.id, changes) },
                     onClose = { playlistTarget = null },
+                    starred = if (starredAsPlaylist) (starred ?: song).starred != null else null,
+                    onSetStar = { starring -> libraryRepository.star(StarType.Song, song.id, starring) },
+                    playlistsEditable = !offline,
                 )
             }
 

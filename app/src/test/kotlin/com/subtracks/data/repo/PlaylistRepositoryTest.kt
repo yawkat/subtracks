@@ -186,6 +186,18 @@ class PlaylistRepositoryTest {
         }
 
     @Test
+    fun theNowPlayingButtonOnlyCountsPlaylistsTheUserCanEdit() =
+        runBlocking {
+            playlists.entries["mine"] = mutableListOf("s1")
+            playlists.entries["shared"] = mutableListOf("s1", "s2")
+            playlists.owners["shared"] = "someone"
+            listOf("mine", "shared").forEach { mirror(it) }
+
+            assertEquals(setOf("mine"), repository.editablePlaylistsHolding(sourceId, "s1").first())
+            assertEquals(emptySet<String>(), repository.editablePlaylistsHolding(sourceId, "s2").first())
+        }
+
+    @Test
     fun theChecklistTicksThePlaylistsHoldingTheSong() =
         runBlocking {
             playlists.entries["a"] = mutableListOf("s1", "s2", "s1")
@@ -329,6 +341,7 @@ class PlaylistRepositoryTest {
 private class FakePlaylistServer : Dispatcher() {
     val entries = ConcurrentHashMap<String, MutableList<String>>()
     val names = ConcurrentHashMap<String, String>()
+    val owners = ConcurrentHashMap<String, String>()
 
     /** Song ids getPlaylist leaves out while still counting them, as gonic does for missing files. */
     val hidden: MutableSet<String> = ConcurrentHashMap.newKeySet()
@@ -351,7 +364,7 @@ private class FakePlaylistServer : Dispatcher() {
         return when (url.encodedPath) {
             "/rest/getPlaylist.view" -> {
                 val id = url.queryParameter("id")!!
-                entries[id]?.let { ok(playlistXml(id, it, names[id] ?: "List $id")) } ?: failed(70)
+                entries[id]?.let { ok(playlistXml(id, it, names[id] ?: "List $id", owners[id] ?: "u")) } ?: failed(70)
             }
 
             "/rest/updatePlaylist.view" -> {
@@ -384,7 +397,8 @@ private class FakePlaylistServer : Dispatcher() {
         id: String,
         songs: List<String>,
         name: String,
-    ) = "<playlist id=\"$id\" name=\"$name\" owner=\"u\" songCount=\"${songs.size}\">" +
+        owner: String = "u",
+    ) = "<playlist id=\"$id\" name=\"$name\" owner=\"$owner\" songCount=\"${songs.size}\">" +
         songs.filter { it !in hidden }.joinToString("") { "<entry id=\"$it\" title=\"$it\"/>" } +
         "</playlist>"
 

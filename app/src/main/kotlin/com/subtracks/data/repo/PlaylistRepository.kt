@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -69,6 +70,15 @@ class PlaylistRepository(
         sourceId: Long,
         songId: String,
     ): Flow<Set<String>> = db.libraryDao().playlistIdsHoldingSong(sourceId, songId).map { it.toSet() }
+
+    /** The ids of the playlists the user may edit that hold [songId], which the checklist would show ticked. */
+    fun editablePlaylistsHolding(
+        sourceId: Long,
+        songId: String,
+    ): Flow<Set<String>> =
+        combine(playlistsHolding(sourceId, songId), editablePlaylists(sourceId)) { holding, editable ->
+            editable.mapNotNullTo(HashSet()) { playlist -> playlist.id.takeIf { it in holding } }
+        }
 
     fun launchApply(
         sourceId: Long,

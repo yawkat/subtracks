@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAddCheck
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PauseCircle
@@ -65,6 +67,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
@@ -102,6 +106,8 @@ import com.subtracks.ui.theme.rememberArtworkColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
@@ -194,6 +200,8 @@ fun NowPlayingRoute(
     modifier: Modifier = Modifier,
     contextMenuHost: ContextMenuHost? = null,
     setStar: (StarType, String, Boolean) -> Unit,
+    onEditPlaylists: ((MenuTarget.Song) -> Unit)? = null,
+    playlistsHolding: (Long, String) -> Flow<Set<String>> = { _, _ -> emptyFlow() },
     controller: PlaybackController = koinInject(),
     libraryRepository: LibraryRepository = koinInject(),
     downloadRepository: DownloadRepository = koinInject(),
@@ -219,6 +227,13 @@ fun NowPlayingRoute(
         produceState<Song?>(null, sourceId, songId) {
             if (sourceId != null && songId != null) {
                 libraryRepository.song(sourceId, songId).collect { value = it }
+            }
+        }
+    val inPlaylist by
+        produceState(false, sourceId, songId, onEditPlaylists != null) {
+            value = false
+            if (sourceId != null && songId != null && onEditPlaylists != null) {
+                playlistsHolding(sourceId, songId).collect { value = it.isNotEmpty() }
             }
         }
     val context = LocalPlatformContext.current
@@ -297,6 +312,11 @@ fun NowPlayingRoute(
                 },
         starred = song?.starred != null,
         onToggleStar = song?.let { s -> { setStar(StarType.Song, s.id, s.starred == null) } },
+        onEditPlaylists =
+            onEditPlaylists?.let { edit ->
+                { song?.let { s -> edit(MenuTarget.Song(s, thumbnail, download)) } }
+            },
+        inPlaylist = inPlaylist,
         onSeek = controller::seekTo,
         keepScreenOn = keepScreenOn,
         modifier = modifier,
@@ -358,6 +378,8 @@ fun NowPlayingScreen(
     onArtistClick: (() -> Unit)? = null,
     starred: Boolean = false,
     onToggleStar: (() -> Unit)? = null,
+    onEditPlaylists: (() -> Unit)? = null,
+    inPlaylist: Boolean = false,
     onSeek: (Long) -> Unit,
     thumbnailRef: CoverArtRef? = null,
     previousArt: NowPlayingArt? = null,
@@ -619,18 +641,30 @@ fun NowPlayingScreen(
                                     )
                                 }
                             }
-                            IconButton(onClick = { onToggleStar?.invoke() }, enabled = onToggleStar != null) {
-                                Icon(
-                                    imageVector = if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                                    contentDescription = stringResource(if (starred) R.string.actions_unstar else R.string.actions_star),
-                                    tint =
-                                        if (starred) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                    modifier = Modifier.size(32.dp),
+                            if (onEditPlaylists != null) {
+                                PlaylistButton(
+                                    starred = starred,
+                                    inPlaylist = inPlaylist,
+                                    enabled = onToggleStar != null,
+                                    onClick = onEditPlaylists,
                                 )
+                            } else {
+                                IconButton(onClick = { onToggleStar?.invoke() }, enabled = onToggleStar != null) {
+                                    Icon(
+                                        imageVector = if (starred) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                        contentDescription =
+                                            stringResource(
+                                                if (starred) R.string.actions_unstar else R.string.actions_star,
+                                            ),
+                                        tint =
+                                            if (starred) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        modifier = Modifier.size(32.dp),
+                                    )
+                                }
                             }
                         }
                         var sliderDragging by remember { mutableStateOf(false) }
@@ -789,4 +823,33 @@ internal fun formatTime(milliseconds: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+@Composable
+private fun PlaylistButton(
+    starred: Boolean,
+    inPlaylist: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val listed = starred || inPlaylist
+    val state =
+        when {
+            starred && inPlaylist -> stringResource(R.string.playlist_button_starred_and_listed)
+            starred -> stringResource(R.string.playlist_button_starred)
+            inPlaylist -> stringResource(R.string.playlist_button_listed)
+            else -> null
+        }
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.semantics { state?.let { stateDescription = it } },
+    ) {
+        Icon(
+            imageVector = if (listed) Icons.AutoMirrored.Rounded.PlaylistAddCheck else Icons.AutoMirrored.Rounded.PlaylistAdd,
+            contentDescription = stringResource(R.string.add_to_playlist),
+            tint = if (listed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(32.dp),
+        )
+    }
 }

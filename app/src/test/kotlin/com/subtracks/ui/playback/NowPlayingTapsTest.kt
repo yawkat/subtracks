@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -60,6 +61,8 @@ class NowPlayingTapsTest {
         onSkipPrevious: () -> Unit = onPrevious,
         previousArt: NowPlayingArt? = null,
         nextArt: NowPlayingArt? = null,
+        onToggleStar: (() -> Unit)? = null,
+        onEditPlaylists: (() -> Unit)? = null,
     ) {
         composeRule.setContent {
             SubtracksTheme {
@@ -80,6 +83,8 @@ class NowPlayingTapsTest {
                     onSeek = {},
                     previousArt = previousArt,
                     nextArt = nextArt,
+                    onToggleStar = onToggleStar,
+                    onEditPlaylists = onEditPlaylists,
                 )
             }
         }
@@ -101,6 +106,37 @@ class NowPlayingTapsTest {
         composeRule.onNodeWithTag(NOW_PLAYING_COVER_TAG).performClick()
 
         assertTrue("the cover art should open the album", opened)
+    }
+
+    @Test
+    fun theStarButtonStarsByDefault() {
+        var starred = false
+        render(onToggleStar = { starred = true })
+
+        composeRule.onNodeWithContentDescription("Add to playlist").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Star").performClick()
+
+        assertTrue("the star button should star the song", starred)
+    }
+
+    @Test
+    fun withStarredAsPlaylistTheStarButtonOpensThePlaylists() {
+        var opened = false
+        var starred = false
+        render(onToggleStar = { starred = true }, onEditPlaylists = { opened = true })
+
+        composeRule.onNodeWithContentDescription("Star").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Add to playlist").performClick()
+
+        assertTrue("the button should open the playlist checklist", opened)
+        assertTrue("the button should not star directly", !starred)
+    }
+
+    @Test
+    fun thePlaylistButtonWaitsForTheSong() {
+        render(onToggleStar = null, onEditPlaylists = {})
+
+        composeRule.onNodeWithContentDescription("Add to playlist").assertIsNotEnabled()
     }
 
     @Test

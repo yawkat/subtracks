@@ -231,6 +231,15 @@ class UserPreferences(
 
     private val keepScreenOnKey = booleanPreferencesKey("keep_screen_on")
 
+    /** Whether the now playing star button opens the playlist checklist, which then offers starring. */
+    fun starredAsPlaylist(): Flow<Boolean> = store.data.map { prefs -> prefs[starredAsPlaylistKey] ?: false }
+
+    suspend fun setStarredAsPlaylist(enabled: Boolean) {
+        store.edit { prefs -> prefs[starredAsPlaylistKey] = enabled }
+    }
+
+    private val starredAsPlaylistKey = booleanPreferencesKey("starred_as_playlist")
+
     fun sortNameMode(): Flow<SortNameMode> =
         store.data.map { prefs ->
             prefs[sortNameModeKey]?.let { stored -> SortNameMode.entries.firstOrNull { it.name == stored } } ?: SortNameMode.Name
