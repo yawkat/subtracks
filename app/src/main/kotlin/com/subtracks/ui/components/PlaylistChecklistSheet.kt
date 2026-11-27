@@ -61,13 +61,11 @@ fun playlistChanges(
     playlists: List<Playlist>,
     holding: Set<String>,
     chosen: Map<String, Boolean>,
-    created: List<String>,
 ): PlaylistChanges {
     val changed = playlists.filter { playlist -> chosen[playlist.id]?.let { it != playlist.id in holding } == true }
     return PlaylistChanges(
         addTo = changed.filter { chosen[it.id] == true },
         removeFrom = changed.filter { chosen[it.id] == false },
-        create = created,
     )
 }
 
@@ -99,20 +97,8 @@ fun PlaylistChecklistSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
-    val created = remember { mutableStateListOf<String>() }
-    var naming by rememberSaveable { mutableStateOf(false) }
     var chosenStar by remember { mutableStateOf<Boolean?>(null) }
-    val changes = holding?.let { playlistChanges(playlists, it, chosen, created) }
-
-    if (naming) {
-        NewPlaylistDialog(
-            onCreate = { name ->
-                created.add(0, name)
-                naming = false
-            },
-            onDismiss = { naming = false },
-        )
-    }
+    val changes = holding?.let { playlistChanges(playlists, it, chosen) }
 
     ModalBottomSheet(
         onDismissRequest = {
@@ -155,19 +141,6 @@ fun PlaylistChecklistSheet(
                     ) { chosenStar = !checked }
                 }
             }
-            if (playlistsEditable) {
-                item(key = "new") {
-                    ListItem(
-                        headlineContent = { Text(stringResource(R.string.new_playlist)) },
-                        leadingContent = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.clickable { naming = true },
-                    )
-                }
-            }
-            itemsIndexed(created, key = { index, _ -> "created-$index" }) { index, name ->
-                ChecklistRow(name, checked = true, enabled = true) { created.removeAt(index) }
-            }
             items(playlists, key = { it.id }) { playlist ->
                 val checked = chosen[playlist.id] ?: (holding?.contains(playlist.id) == true)
                 ChecklistRow(playlist.name, checked, enabled = holding != null && playlistsEditable) {
@@ -193,37 +166,5 @@ private fun ChecklistRow(
         trailingContent = { Checkbox(checked = checked, onCheckedChange = null, enabled = enabled) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() }),
-    )
-}
-
-@Composable
-private fun NewPlaylistDialog(
-    onCreate: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by rememberSaveable { mutableStateOf("") }
-    val focus = remember { FocusRequester() }
-    val valid = name.isNotBlank()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.new_playlist)) },
-        text = {
-            LaunchedEffect(focus) { focus.requestFocus() }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.playlist_name)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (valid) onCreate(name.trim()) }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onCreate(name.trim()) }, enabled = valid) { Text(stringResource(R.string.create)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.actions_cancel)) }
-        },
     )
 }

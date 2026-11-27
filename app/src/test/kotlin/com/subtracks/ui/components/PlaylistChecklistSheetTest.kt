@@ -105,7 +105,6 @@ class PlaylistChecklistSheetTest {
         render(starred = false, playlistsEditable = false)
 
         composeRule.onNodeWithText("Mix").assertIsNotEnabled().performClick()
-        composeRule.onNodeWithText("New playlist").assertDoesNotExist()
         composeRule.onNodeWithText("Starred").performClick()
         closeSheet()
 
