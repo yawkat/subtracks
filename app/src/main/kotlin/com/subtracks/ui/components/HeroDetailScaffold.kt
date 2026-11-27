@@ -105,6 +105,7 @@ fun HeroDetailScaffold(
     content: LazyListScope.(rowModifier: Modifier) -> Unit,
     modifier: Modifier = Modifier,
     contentReady: Boolean = true,
+    floatingActionButton: (@Composable () -> Unit)? = null,
 ) {
     val effectiveArtwork = artwork ?: baseArtworkColors()
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
@@ -157,7 +158,8 @@ fun HeroDetailScaffold(
                     state = listState,
                     contentPadding =
                         PaddingValues(
-                            bottom = 16.dp + with(density) { navBarBottom.toDp() },
+                            bottom =
+                                16.dp + with(density) { navBarBottom.toDp() } + if (floatingActionButton != null) FAB_CLEARANCE else 0.dp,
                         ),
                     modifier = Modifier.fillMaxSize(),
                 ) {
@@ -179,6 +181,14 @@ fun HeroDetailScaffold(
                         .graphicsLayer { alpha = 1f - barFraction }
                         .statusBarScrim(),
                 )
+
+                if (floatingActionButton != null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 16.dp + with(density) { navBarBottom.toDp() }),
+                    ) { floatingActionButton() }
+                }
 
                 TopAppBar(
                     title = {
@@ -212,6 +222,8 @@ fun HeroDetailScaffold(
         }
     }
 }
+
+private val FAB_CLEARANCE = 72.dp
 
 @Composable
 private fun rememberRestorableLazyListState(contentReady: Boolean): LazyListState {

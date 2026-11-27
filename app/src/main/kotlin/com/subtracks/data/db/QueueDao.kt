@@ -405,4 +405,10 @@ interface QueueDao {
 
     @RawQuery
     suspend fun libraryRank(query: RoomRawQuery): Long?
+
+    @RawQuery
+    suspend fun sortedPlaylistSongs(query: RoomRawQuery): List<PlaylistSongItem>
+
+    @RawQuery
+    suspend fun sortedPlaylistRank(query: RoomRawQuery): Long?
 }

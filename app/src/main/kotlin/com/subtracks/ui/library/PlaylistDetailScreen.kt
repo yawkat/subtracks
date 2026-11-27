@@ -2,6 +2,7 @@ package com.subtracks.ui.library
 
 import android.content.Context
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -15,14 +16,17 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.subtracks.R
+import com.subtracks.data.db.playlistIdOf
 import com.subtracks.data.model.BulkDownloadAction
 import com.subtracks.data.model.CoverArtRef
 import com.subtracks.data.model.DownloadList
 import com.subtracks.data.model.ListDownloadStatus
 import com.subtracks.data.model.Playlist
 import com.subtracks.data.model.PlaylistSongItem
-import com.subtracks.data.model.QueueKind
 import com.subtracks.data.model.SongDownload
+import com.subtracks.data.model.isPlaylist
+import com.subtracks.data.prefs.PlaylistSongOrder
+import com.subtracks.data.prefs.PlaylistSongSort
 import com.subtracks.data.source.StarType
 import com.subtracks.playback.PlaybackController
 import com.subtracks.ui.components.CloseWhenDownloadsGone
@@ -33,9 +37,12 @@ import com.subtracks.ui.components.HeroHeader
 import com.subtracks.ui.components.ItemActions
 import com.subtracks.ui.components.MenuTarget
 import com.subtracks.ui.components.PendingDownloadDeleteConfirmation
+import com.subtracks.ui.components.SortOption
+import com.subtracks.ui.components.SortOptionsFab
 import com.subtracks.ui.components.rememberPendingDownloadDelete
 import com.subtracks.ui.theme.ArtworkColors
 import com.subtracks.ui.theme.rememberArtworkColors
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -60,6 +67,7 @@ fun PlaylistDetailRoute(
     val downloadStatus by viewModel.downloadStatus.collectAsStateWithLifecycle()
     val offline by viewModel.offline.collectAsStateWithLifecycle()
     val canEdit by viewModel.canEdit.collectAsStateWithLifecycle()
+    val songOrder by viewModel.songOrder.collectAsStateWithLifecycle()
     CloseWhenDownloadsGone(downloadStatus.downloaded, offline, onBack)
     val pendingDelete = rememberPendingDownloadDelete(contextMenuHost?.dismissals ?: emptyFlow()) { _, _ -> viewModel.downloadedBytes() }
     val playback by playbackController.state.collectAsStateWithLifecycle()
@@ -104,7 +112,14 @@ fun PlaylistDetailRoute(
         onMore = {
             playlist?.let { contextMenuHost?.show(MenuTarget.Playlist(it, viewModel.coverArt(it.coverArt, true), downloadStatus), actions) }
         },
-        playingSongId = playback.item?.id.takeIf { context?.kind == QueueKind.Playlist && context.refId == playlistId },
+        playingSongId =
+            playback.item?.id.takeIf {
+                context != null && context.kind.isPlaylist &&
+                    playlistIdOf(context.kind, context.refId) == playlistId
+            },
+        songOrder = songOrder,
+        onSongOrderChange = viewModel::setSongOrder,
+        dismissals = contextMenuHost?.dismissals,
     )
 
     PendingDownloadDeleteConfirmation(pendingDelete) {
@@ -130,6 +145,9 @@ fun PlaylistDetailScreen(
     onPlay: () -> Unit = {},
     onMore: () -> Unit = {},
     playingSongId: String? = null,
+    songOrder: PlaylistSongOrder? = PlaylistSongOrder(),
+    onSongOrderChange: (PlaylistSongOrder) -> Unit = {},
+    dismissals: Flow<Unit>? = null,
 ) {
     val context = LocalContext.current
     HeroDetailScaffold(
@@ -179,8 +197,33 @@ fun PlaylistDetailScreen(
             }
         },
         modifier = modifier,
+        floatingActionButton =
+            if (songOrder != null && songs.itemCount > 0) {
+                {
+                    SortOptionsFab(
+                        sort = songOrder.sort.name,
+                        descending = songOrder.descending,
+                        options = PLAYLIST_SORT_OPTIONS,
+                        onSortChange = { sort -> onSongOrderChange(PlaylistSongOrder(PlaylistSongSort.valueOf(sort))) },
+                        onToggleSortDirection = { onSongOrderChange(songOrder.copy(descending = !songOrder.descending)) },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        dismissals = dismissals,
+                    )
+                }
+            } else {
+                null
+            },
     )
 }
+
+private val PLAYLIST_SORT_OPTIONS =
+    listOf(
+        SortOption(PlaylistSongSort.Custom.name, R.string.sort_playlist_order),
+        SortOption(PlaylistSongSort.Name.name, R.string.resources_sort_by_title),
+        SortOption(PlaylistSongSort.Artist.name, R.string.resources_sort_by_artist),
+        SortOption(PlaylistSongSort.Album.name, R.string.resources_sort_by_album),
+    )
 
 private fun playlistSummary(
     context: Context,

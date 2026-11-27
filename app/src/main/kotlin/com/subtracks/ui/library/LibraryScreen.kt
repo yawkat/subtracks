@@ -132,9 +132,12 @@ import com.subtracks.ui.components.ArtistArt
 import com.subtracks.ui.components.ContextMenuHost
 import com.subtracks.ui.components.DismissOnRequest
 import com.subtracks.ui.components.ItemActions
+import com.subtracks.ui.components.ListOptionsIcon
 import com.subtracks.ui.components.MenuTarget
 import com.subtracks.ui.components.PendingDownloadDeleteConfirmation
 import com.subtracks.ui.components.SearchField
+import com.subtracks.ui.components.SortOption
+import com.subtracks.ui.components.SortSection
 import com.subtracks.ui.components.rememberPendingDownloadDelete
 import com.subtracks.ui.components.statusBarScrim
 import com.subtracks.ui.home.HomeRoute
@@ -163,12 +166,6 @@ enum class LibraryTab(
     Songs(R.string.resources_song_name, Icons.Rounded.MusicNote),
     Playlists(R.string.resources_playlist_name, Icons.AutoMirrored.Rounded.PlaylistPlay),
 }
-
-data class SortOption(
-    val value: String,
-    @param:StringRes val label: Int,
-    val descendingByDefault: Boolean = false,
-)
 
 fun LibraryTab.listTab(): LibraryListTab? = LibraryListTab.entries.firstOrNull { it.name == name }
 
@@ -480,7 +477,6 @@ fun LibraryScreen(
     val listTopInset = statusBarTop
     val listBottomInset = tabBarHeight + BOTTOM_CLEARANCE
     val headerColor = artwork?.let(::playerSurfaceColor) ?: MaterialTheme.colorScheme.background
-    val listOptionsLabel = stringResource(R.string.list_options)
 
     Box(
         modifier =
@@ -672,32 +668,7 @@ fun LibraryScreen(
                 if (searchFab) {
                     Icon(Icons.Rounded.Search, contentDescription = stringResource(R.string.search))
                 } else {
-                    Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                        ListOptionsGlyph(
-                            modifier =
-                                Modifier
-                                    .size(24.dp)
-                                    .semantics { contentDescription = listOptionsLabel },
-                        )
-                        if (filtersActive) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 1.dp, y = 2.5.dp)
-                                        .size(11.dp)
-                                        .background(fabContainerColor, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .size(7.dp)
-                                            .background(fabContentColor, CircleShape),
-                                )
-                            }
-                        }
-                    }
+                    ListOptionsIcon(filtersActive = filtersActive, containerColor = fabContainerColor, contentColor = fabContentColor)
                 }
             }
         }
@@ -743,8 +714,6 @@ private fun ListOptionsSheet(
     onSearch: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-        val naturalDescending = sortOptions.firstOrNull { it.value == listQuery.sort }?.descendingByDefault == true
-        val descending = if (naturalDescending) !listQuery.descending else listQuery.descending
         Surface(
             onClick = onSearch,
             shape = RoundedCornerShape(8.dp),
@@ -762,44 +731,13 @@ private fun ListOptionsSheet(
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.sort_by),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onToggleSortDirection) {
-                Icon(
-                    imageVector = if (descending) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
-                    contentDescription =
-                        if (descending) {
-                            stringResource(
-                                R.string.sort_descending,
-                            )
-                        } else {
-                            stringResource(R.string.sort_ascending)
-                        },
-                )
-            }
-        }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        ) {
-            sortOptions.forEach { option ->
-                FilterChip(
-                    selected = listQuery.sort == option.value,
-                    onClick = {
-                        if (listQuery.sort == option.value) onToggleSortDirection() else onSortChange(option.value)
-                    },
-                    label = { Text(stringResource(option.label)) },
-                )
-            }
-        }
+        SortSection(
+            sort = listQuery.sort,
+            descending = listQuery.descending,
+            options = sortOptions,
+            onSortChange = onSortChange,
+            onToggleSortDirection = onToggleSortDirection,
+        )
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -881,27 +819,6 @@ private val TAB_STRIP_LEADING_GAP = 8.dp
 private val TAB_ICON_SIZE = 24.dp
 private val TAB_VERTICAL_PADDING = 6.dp
 private val TOUCH_TARGET = 48.dp
-private const val LIST_OPTIONS_WEIGHT = 0.11f
-private val LIST_OPTIONS_BAR_WIDTHS = listOf(1f, 0.62f, 0.34f)
-
-@Composable
-private fun ListOptionsGlyph(modifier: Modifier = Modifier) {
-    val color = LocalContentColor.current
-    Canvas(modifier) {
-        val thickness = size.height * LIST_OPTIONS_WEIGHT
-        val gap = size.height / (LIST_OPTIONS_BAR_WIDTHS.size + 1)
-        LIST_OPTIONS_BAR_WIDTHS.forEachIndexed { index, widthFraction ->
-            val y = gap * (index + 1)
-            drawLine(
-                color = color,
-                start = Offset(0f, y),
-                end = Offset(size.width * widthFraction, y),
-                strokeWidth = thickness,
-                cap = StrokeCap.Round,
-            )
-        }
-    }
-}
 
 @Suppress("FrequentlyChangingValue")
 @OptIn(ExperimentalMaterial3Api::class)

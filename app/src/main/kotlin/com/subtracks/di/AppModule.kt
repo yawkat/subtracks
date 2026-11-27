@@ -177,7 +177,7 @@ fun appModule(
     viewModel { params -> AddSourceViewModel(get(), get(), get(), params.getOrNull(), context.resources) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), params.get()) }
     viewModel { params -> ArtistDetailViewModel(get(), get(), get(), get(), params.get()) }
-    viewModel { params -> PlaylistDetailViewModel(get(), get(), get(), get(), get(), params.get()) }
+    viewModel { params -> PlaylistDetailViewModel(get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { QueueViewModel(get(), get(), get(), get()) }
 }
 

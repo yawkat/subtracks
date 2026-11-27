@@ -7,6 +7,7 @@ import androidx.paging.PagingSource
 import com.subtracks.R
 import com.subtracks.UiMessage
 import com.subtracks.data.db.LibrarySongsQuery
+import com.subtracks.data.db.SortedPlaylistQuery
 import com.subtracks.data.db.SubtracksDatabase
 import com.subtracks.data.db.albumsPageQuery
 import com.subtracks.data.db.artistsPageQuery
@@ -14,6 +15,8 @@ import com.subtracks.data.db.librarySongRankQuery
 import com.subtracks.data.db.librarySongsPageQuery
 import com.subtracks.data.db.playlistsPageQuery
 import com.subtracks.data.db.rediscoverAlbumsQuery
+import com.subtracks.data.db.sortedPlaylistPageQuery
+import com.subtracks.data.db.sortedPlaylistRankAtPositionQuery
 import com.subtracks.data.model.Album
 import com.subtracks.data.model.AlbumSongItem
 import com.subtracks.data.model.Artist
@@ -27,6 +30,7 @@ import com.subtracks.data.model.QueueOrigin
 import com.subtracks.data.model.Song
 import com.subtracks.data.prefs.AlbumSort
 import com.subtracks.data.prefs.ArtistSort
+import com.subtracks.data.prefs.PlaylistSongOrder
 import com.subtracks.data.prefs.PlaylistSort
 import com.subtracks.data.prefs.StarredFilter
 import com.subtracks.data.prefs.UserPreferences
@@ -408,6 +412,36 @@ class LibraryRepository(
                 db.libraryDao().playlistSongs(sourceId, playlistId)
             }
         }
+
+    /** A playlist's songs in [order]; sorted by name, they follow the user's current name mode. */
+    fun playlistSongs(
+        sourceId: Long,
+        playlistId: String,
+        order: PlaylistSongOrder,
+        downloaded: Boolean = false,
+    ): Flow<PagingData<PlaylistSongItem>> {
+        if (order.isCustom) return playlistSongs(sourceId, playlistId, downloaded)
+        return userPreferences.sortNameMode().flatMapLatest { mode ->
+            val query = SortedPlaylistQuery(playlistId, order, mode)
+            pager(60) {
+                val dao = db.libraryDao()
+                val raw = sortedPlaylistPageQuery(sourceId, query, downloaded)
+                if (downloaded) dao.downloadedSortedPlaylistSongsPaging(raw) else dao.sortedPlaylistSongsPaging(raw)
+            }
+        }
+    }
+
+    suspend fun sortedPlaylistQuery(
+        playlistId: String,
+        order: PlaylistSongOrder,
+    ): SortedPlaylistQuery = SortedPlaylistQuery(playlistId, order, userPreferences.sortNameMode().first())
+
+    /** Where the song at playlist [position] sits in [query]'s order. */
+    suspend fun sortedPlaylistOrdinal(
+        sourceId: Long,
+        query: SortedPlaylistQuery,
+        position: Long,
+    ): Long? = db.queueDao().sortedPlaylistRank(sortedPlaylistRankAtPositionQuery(sourceId, query, position))
 
     private val starLock = Mutex()
 
