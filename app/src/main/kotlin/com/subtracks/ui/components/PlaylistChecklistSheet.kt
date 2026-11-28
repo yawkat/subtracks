@@ -16,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,20 +61,27 @@ fun playlistChanges(
     playlists: List<Playlist>,
     holding: Set<String>,
     chosen: Map<String, Boolean>,
-    created: List<String>,
 ): PlaylistChanges {
     val changed = playlists.filter { playlist -> chosen[playlist.id]?.let { it != playlist.id in holding } == true }
     return PlaylistChanges(
         addTo = changed.filter { chosen[it.id] == true },
         removeFrom = changed.filter { chosen[it.id] == false },
-        create = created,
     )
 }
+
+/** The star [chosen] in the checklist when it differs from the song's [starred] state, else null. */
+fun starChange(
+    starred: Boolean,
+    chosen: Boolean?,
+): Boolean? = chosen?.takeUnless { it == starred }
 
 /**
  * Lists the user's playlists with a box each, checked where the playlist already holds the song
  * [title]. Checking and unchecking only marks the change: closing the sheet hands them all to
  * [onSave] at once, while Cancel drops them.
+ *
+ * With [starred] set, a Starred row comes first and closing hands a change of it to [onSetStar].
+ * Without [playlistsEditable] (offline) the playlist rows only show where the song is.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,26 +91,19 @@ fun PlaylistChecklistSheet(
     holding: Set<String>?,
     onSave: (PlaylistChanges) -> Unit,
     onClose: () -> Unit,
+    starred: Boolean? = null,
+    onSetStar: (Boolean) -> Unit = {},
+    playlistsEditable: Boolean = true,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
-    val created = remember { mutableStateListOf<String>() }
-    var naming by rememberSaveable { mutableStateOf(false) }
-    val changes = holding?.let { playlistChanges(playlists, it, chosen, created) }
-
-    if (naming) {
-        NewPlaylistDialog(
-            onCreate = { name ->
-                created.add(0, name)
-                naming = false
-            },
-            onDismiss = { naming = false },
-        )
-    }
+    var chosenStar by remember { mutableStateOf<Boolean?>(null) }
+    val changes = holding?.let { playlistChanges(playlists, it, chosen) }
 
     ModalBottomSheet(
         onDismissRequest = {
             changes?.takeUnless { it.isEmpty() }?.let(onSave)
+            starred?.let { starChange(it, chosenStar) }?.let(onSetStar)
             onClose()
         },
         sheetState = sheetState,
@@ -129,20 +130,20 @@ fun PlaylistChecklistSheet(
             }
         }
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
-            item(key = "new") {
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.new_playlist)) },
-                    leadingContent = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable { naming = true },
-                )
-            }
-            itemsIndexed(created, key = { index, _ -> "created-$index" }) { index, name ->
-                ChecklistRow(name, checked = true, enabled = true) { created.removeAt(index) }
+            if (starred != null) {
+                item(key = "starred") {
+                    val checked = chosenStar ?: starred
+                    ChecklistRow(
+                        stringResource(R.string.playlist_checklist_starred),
+                        checked,
+                        enabled = true,
+                        leading = { Icon(Icons.Rounded.Star, contentDescription = null) },
+                    ) { chosenStar = !checked }
+                }
             }
             items(playlists, key = { it.id }) { playlist ->
                 val checked = chosen[playlist.id] ?: (holding?.contains(playlist.id) == true)
-                ChecklistRow(playlist.name, checked, enabled = holding != null) {
+                ChecklistRow(playlist.name, checked, enabled = holding != null && playlistsEditable) {
                     chosen[playlist.id] = !checked
                 }
             }
@@ -156,44 +157,14 @@ private fun ChecklistRow(
     name: String,
     checked: Boolean,
     enabled: Boolean,
+    leading: (@Composable () -> Unit)? = null,
     onToggle: () -> Unit,
 ) {
     ListItem(
         headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingContent = leading,
         trailingContent = { Checkbox(checked = checked, onCheckedChange = null, enabled = enabled) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() }),
-    )
-}
-
-@Composable
-private fun NewPlaylistDialog(
-    onCreate: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by rememberSaveable { mutableStateOf("") }
-    val focus = remember { FocusRequester() }
-    val valid = name.isNotBlank()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.new_playlist)) },
-        text = {
-            LaunchedEffect(focus) { focus.requestFocus() }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.playlist_name)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (valid) onCreate(name.trim()) }),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onCreate(name.trim()) }, enabled = valid) { Text(stringResource(R.string.create)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.actions_cancel)) }
-        },
     )
 }

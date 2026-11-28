@@ -128,6 +128,7 @@ fun SettingsRoute(
     val downloadOverMetered by viewModel.downloadOverMetered.collectAsStateWithLifecycle()
     val scrobbling by viewModel.scrobbling.collectAsStateWithLifecycle()
     val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+    val starredAsPlaylist by viewModel.starredAsPlaylist.collectAsStateWithLifecycle()
     val offline by viewModel.offline.collectAsStateWithLifecycle()
     val verboseLogging by viewModel.verboseLogging.collectAsStateWithLifecycle()
     val replayGainMode by viewModel.replayGainMode.collectAsStateWithLifecycle()
@@ -152,6 +153,7 @@ fun SettingsRoute(
         sortNameMode = sortNameMode,
         songTapBehavior = songTapBehavior,
         keepScreenOn = keepScreenOn,
+        starredAsPlaylist = starredAsPlaylist,
         offline = offline,
         verboseLogging = verboseLogging,
         onSelectSource = viewModel::selectSource,
@@ -169,6 +171,7 @@ fun SettingsRoute(
         onSortNameModeChange = viewModel::setSortNameMode,
         onSongTapBehaviorChange = viewModel::setSongTapBehavior,
         onKeepScreenOnChange = viewModel::setKeepScreenOn,
+        onStarredAsPlaylistChange = viewModel::setStarredAsPlaylist,
         onOfflineChange = viewModel::setOfflineMode,
         onVerboseLoggingChange = viewModel::setVerboseLogging,
         onAddServer = onAddServer,
@@ -209,6 +212,7 @@ fun SettingsScreen(
     scrobbling: Boolean,
     modifier: Modifier = Modifier,
     keepScreenOn: Boolean = false,
+    starredAsPlaylist: Boolean = false,
     offline: Boolean = false,
     verboseLogging: Boolean = false,
     syncMode: SyncMode = SyncMode.WifiOnly,
@@ -232,6 +236,7 @@ fun SettingsScreen(
     onSortNameModeChange: (SortNameMode) -> Unit = {},
     onSongTapBehaviorChange: (SongTapBehavior) -> Unit = {},
     onKeepScreenOnChange: (Boolean) -> Unit = {},
+    onStarredAsPlaylistChange: (Boolean) -> Unit = {},
     onOfflineChange: (Boolean) -> Unit = {},
     onVerboseLoggingChange: (Boolean) -> Unit = {},
     onAddServer: () -> Unit,
@@ -425,6 +430,26 @@ fun SettingsScreen(
                         )
                     },
                     modifier = Modifier.clickable { onKeepScreenOnChange(!keepScreenOn) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_music_options_starred_as_playlist_title)) },
+                    supportingContent = { Text(stringResource(R.string.settings_music_options_starred_as_playlist_description)) },
+                    trailingContent = {
+                        Switch(
+                            checked = starredAsPlaylist,
+                            onCheckedChange = onStarredAsPlaylistChange,
+                            colors =
+                                SwitchDefaults.colors(
+                                    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+                                ),
+                        )
+                    },
+                    modifier = Modifier.clickable { onStarredAsPlaylistChange(!starredAsPlaylist) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
             }
