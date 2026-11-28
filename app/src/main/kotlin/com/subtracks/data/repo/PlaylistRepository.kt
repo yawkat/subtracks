@@ -27,9 +27,8 @@ import kotlinx.coroutines.sync.withLock
 data class PlaylistChanges(
     val addTo: List<Playlist> = emptyList(),
     val removeFrom: List<Playlist> = emptyList(),
-    val create: List<String> = emptyList(),
 ) {
-    fun isEmpty(): Boolean = addTo.isEmpty() && removeFrom.isEmpty() && create.isEmpty()
+    fun isEmpty(): Boolean = addTo.isEmpty() && removeFrom.isEmpty()
 }
 
 /** Whether [username] may change this playlist: servers only let the owner edit one. */
@@ -97,8 +96,7 @@ class PlaylistRepository(
     }
 
     /**
-     * Applies the checklist's [changes] for [songId]: new playlists are created holding it, playlists
-     * checked get it unless they already hold it, and playlists unchecked lose every occurrence of it.
+     * Applies the checklist's [changes] for [songId]: playlists checked get it unless they already hold it, and playlists unchecked lose every occurrence of it.
      * Reports the outcome in one message.
      */
     suspend fun apply(
@@ -107,14 +105,6 @@ class PlaylistRepository(
         changes: PlaylistChanges,
     ): Boolean {
         val outcomes = ArrayList<Outcome>()
-        for (name in changes.create) {
-            outcomes +=
-                runEdit(sourceId, "create \"$name\" with $songId") { source ->
-                    val id = source.createPlaylist(name, songId)
-                    if (id == null) requestSync() else mirror(source, source.playlist(id))
-                    Outcome(true, UiMessage(R.string.playlist_created, listOf(name)))
-                }
-        }
         for (playlist in changes.addTo) {
             outcomes +=
                 runEdit(sourceId, "add $songId to ${playlist.id}") { source ->

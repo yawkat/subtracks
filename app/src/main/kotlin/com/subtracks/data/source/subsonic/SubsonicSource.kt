@@ -189,23 +189,6 @@ class SubsonicSource(
                 )
         }
 
-    override suspend fun createPlaylist(
-        name: String,
-        songId: String,
-    ): String? =
-        withContext(Dispatchers.IO) {
-            var created: String? = null
-            client.stream("createPlaylist", listOf("name" to name, "songId" to songId)) { input ->
-                SubsonicXml.readEntities(
-                    input = input,
-                    entityTag = "playlist",
-                    create = { it.attr("id") },
-                    onEnd = { if (created == null) created = it.ifEmpty { null } },
-                )
-            }
-            created
-        }
-
     override suspend fun updatePlaylist(
         playlistId: String,
         songIdsToAdd: List<String>,

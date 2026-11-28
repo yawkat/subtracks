@@ -176,12 +176,11 @@ class PlaylistRepositoryTest {
             playlists.entries["p1"] = mutableListOf()
             playlists.entries["p2"] = mutableListOf("s1")
 
-            val changes = PlaylistChanges(addTo = listOf(playlist("p1")), removeFrom = listOf(playlist("p2")), create = listOf("Mix"))
+            val changes = PlaylistChanges(addTo = listOf(playlist("p1")), removeFrom = listOf(playlist("p2")))
             assertTrue(repository.apply(sourceId, "s1", changes))
 
             assertEquals(listOf("s1"), playlists.entries["p1"])
             assertEquals(emptyList<String>(), playlists.entries["p2"])
-            assertEquals(listOf("s1"), playlists.entries.getValue((playlists.entries.keys - setOf("p1", "p2")).single()))
             assertEquals(listOf(resources.getString(R.string.playlists_updated)), messages)
         }
 
@@ -252,29 +251,6 @@ class PlaylistRepositoryTest {
         }
 
     @Test
-    fun creatingMakesAPlaylistHoldingTheSongAndMirrorsIt() =
-        runBlocking {
-            assertTrue(create("Mix", "s1"))
-
-            val id = playlists.entries.keys.single()
-            assertEquals(listOf("s1"), playlists.entries[id])
-            assertEquals(listOf("s1"), localSongs(id))
-            assertEquals("Mix", localPlaylist(id).name)
-            assertEquals(0, syncRequests)
-        }
-
-    @Test
-    fun creatingOnAServerThatDoesNotReturnThePlaylistRequestsASync() =
-        runBlocking {
-            playlists.legacyCreate = true
-
-            assertTrue(create("Mix", "s1"))
-
-            assertEquals(listOf("s1"), playlists.entries.values.single())
-            assertEquals(1, syncRequests)
-        }
-
-    @Test
     fun removingMoreEntriesThanOneRequestHoldsRemovesEachOfThem() =
         runBlocking {
             val songs = (0 until 300).map { "s$it" }
@@ -317,11 +293,6 @@ class PlaylistRepositoryTest {
         songId: String,
     ) = repository.apply(playlist.sourceId, songId, PlaylistChanges(addTo = listOf(playlist)))
 
-    private suspend fun create(
-        name: String,
-        songId: String,
-    ) = repository.apply(sourceId, songId, PlaylistChanges(create = listOf(name)))
-
     private suspend fun localSongs(playlistId: String): List<String> =
         db.useReaderConnection { connection ->
             connection.usePrepared("SELECT songId FROM playlist_songs WHERE sourceId = ? AND playlistId = ? ORDER BY position") {
@@ -340,15 +311,10 @@ class PlaylistRepositoryTest {
 /** A Subsonic server that only knows playlists, applying edits the way the API defines them. */
 private class FakePlaylistServer : Dispatcher() {
     val entries = ConcurrentHashMap<String, MutableList<String>>()
-    val names = ConcurrentHashMap<String, String>()
     val owners = ConcurrentHashMap<String, String>()
 
     /** Song ids getPlaylist leaves out while still counting them, as gonic does for missing files. */
     val hidden: MutableSet<String> = ConcurrentHashMap.newKeySet()
-
-    /** Answers createPlaylist without the playlist, as servers before API 1.14 do. */
-    @Volatile
-    var legacyCreate = false
 
     @Volatile
     var failUpdatesAfter = Int.MAX_VALUE
@@ -356,15 +322,13 @@ private class FakePlaylistServer : Dispatcher() {
     @Volatile
     var updates = 0
 
-    private var nextId = 1
-
     @Synchronized
     override fun dispatch(request: RecordedRequest): MockResponse {
         val url = request.requestUrl!!
         return when (url.encodedPath) {
             "/rest/getPlaylist.view" -> {
                 val id = url.queryParameter("id")!!
-                entries[id]?.let { ok(playlistXml(id, it, names[id] ?: "List $id", owners[id] ?: "u")) } ?: failed(70)
+                entries[id]?.let { ok(playlistXml(id, it, "List $id", owners[id] ?: "u")) } ?: failed(70)
             }
 
             "/rest/updatePlaylist.view" -> {
@@ -378,13 +342,6 @@ private class FakePlaylistServer : Dispatcher() {
                     .forEach { list.removeAt(it) }
                 list += url.queryParameterValues("songIdToAdd").map { it!! }
                 ok("")
-            }
-
-            "/rest/createPlaylist.view" -> {
-                val id = "new${nextId++}"
-                entries[id] = url.queryParameterValues("songId").map { it!! }.toMutableList()
-                names[id] = url.queryParameter("name")!!
-                ok(if (legacyCreate) "" else playlistXml(id, entries.getValue(id), names.getValue(id)))
             }
 
             else -> {

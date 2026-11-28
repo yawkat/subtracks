@@ -328,7 +328,6 @@
     <string name="playlist_checklist_starred">Starred</string>
     <string name="remove_from_playlist">Remove from playlist</string>
     <string name="playlist_added">Added to %1$s</string>
-    <string name="playlist_created">Created %1$s</string>
     <string name="playlist_removed">Removed from %1$s</string>
     <string name="playlists_updated">Playlists updated</string>
     <string name="playlist_update_failed">Could not update the playlist</string>

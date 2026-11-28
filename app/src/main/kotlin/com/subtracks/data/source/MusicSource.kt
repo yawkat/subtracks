@@ -42,15 +42,6 @@ interface MusicSource {
     suspend fun playlist(playlistId: String): PlaylistContents = throw UnsupportedOperationException()
 
     /**
-     * Creates a playlist holding [songId] and returns its id, or null if the server did not report
-     * one (servers before API 1.14 answer createPlaylist without the playlist).
-     */
-    suspend fun createPlaylist(
-        name: String,
-        songId: String,
-    ): String? = throw UnsupportedOperationException()
-
-    /**
      * Appends [songIdsToAdd] and removes the entries at [entryIndexesToRemove], which index
      * [PlaylistContents.entryIds] as the server holds it before this call.
      */
